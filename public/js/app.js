@@ -22,6 +22,25 @@ import {
   observeCanvasResize,
 } from "./waveformRibbon.js";
 
+// Loading overlay: shown by default in the HTML (no JS needed — see
+// index.html), covering the render-blocking wait during a Render cold start.
+// Hidden for real at the bottom of this file once the app is functional. The
+// 5s safety-net timeout below is only for the case where init throws before
+// reaching that point — by the time THIS script is even executing, the real
+// cold-start network wait is already over (the browser couldn't have fetched
+// and started running it otherwise), so 5s is plenty of slack for the
+// synchronous DOM setup below without ever cutting off a legitimate slow
+// cold start.
+function hideLoadingOverlay() {
+  const overlay = document.getElementById("loading-overlay");
+  if (!overlay || overlay.style.display === "none") return;
+  overlay.style.opacity = "0";
+  setTimeout(() => {
+    overlay.style.display = "none";
+  }, 300);
+}
+setTimeout(hideLoadingOverlay, 5000);
+
 const scriptInput = document.getElementById("script-input");
 const scriptCharCount = document.getElementById("script-char-count");
 const languageSelect = document.getElementById("language-select");
@@ -518,3 +537,6 @@ backupBtn.addEventListener("click", () => {
 });
 
 updateGenerateAvailability();
+
+// Everything above ran without throwing — the app is actually functional now.
+hideLoadingOverlay();

@@ -110,7 +110,8 @@ body {
   }
 
   .status.generating,
-  .loading-label {
+  .loading-label,
+  .loading-overlay-line {
     animation: pulse 2s ease-in-out infinite;
   }
 
@@ -121,6 +122,38 @@ body {
   .toast.toast-leaving {
     animation: toast-out 200ms var(--ease-in) forwards;
   }
+}
+
+/* ===== Loading overlay (cold-start cover) ===== */
+/* No JS needed to show this — it's just the page's default state on parse.
+   Deliberately no spinner, matching the rest of the app's loading style
+   (see .loading-label / the breathing waveform loader). */
+
+#loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000; /* above the nav (900), modals (1000), and toasts (1200) */
+  background: var(--color-void);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-16);
+  transition: opacity 300ms var(--ease-in);
+}
+
+.loading-overlay-wordmark {
+  font-family: var(--font-primary);
+  font-size: 24px;
+  font-weight: var(--fw-medium);
+  color: var(--color-paper);
+  letter-spacing: -0.012em;
+}
+
+.loading-overlay-line {
+  width: 120px;
+  height: 2px;
+  background: var(--color-mist);
 }
 
 /* ===== Navigation bar ===== */

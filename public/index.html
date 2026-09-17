@@ -10,6 +10,15 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Visible immediately on parse, no JS needed — covers the render-blocking
+       wait during a Render cold start (up to 30-60s) with something on-brand
+       instead of a blank page. app.js hides this once it's actually running;
+       see the fallback timer there too, in case app.js itself fails to start. -->
+  <div id="loading-overlay">
+    <span class="loading-overlay-wordmark">EchoVoice</span>
+    <div class="loading-overlay-line"></div>
+  </div>
+
   <nav class="navbar">
     <div class="navbar-inner">
       <span class="navbar-wordmark">EchoVoice</span>

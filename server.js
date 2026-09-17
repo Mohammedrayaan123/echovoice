@@ -420,9 +420,36 @@ async function cleanupOrphanedVoices() {
   }
 }
 
+// Render's free tier spins the service down after ~15 minutes idle, and the
+// next request pays a 30-60s cold-start penalty — bad on demo day if someone
+// opens the hosted URL after it's been sitting. Self-pinging /health keeps it
+// awake: this is a real outbound HTTP request that leaves the container and
+// comes back in through Render's routing layer, which is what actually
+// resets their idle timer (unlike just calling the route handler in-process).
+// process.env.RENDER is set automatically by Render (not locally), so this
+// only ever runs in that environment. No https.get fallback for Node < 18 —
+// package.json already requires >=18, and fetch is already used natively
+// elsewhere in this file (fetchElevenLabs), so that path can't occur here.
+function startKeepalivePing() {
+  if (!process.env.RENDER) return;
+
+  const PING_INTERVAL_MS = 14 * 60 * 1000;
+  const baseUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+
+  setInterval(async () => {
+    try {
+      await fetch(`${baseUrl}/health`);
+      console.log("[keepalive] pinged /health");
+    } catch (err) {
+      console.log("[keepalive] ping failed:", err.message);
+    }
+  }, PING_INTERVAL_MS);
+}
+
 const PORT = process.env.PORT || 5500;
 app.listen(PORT, () => {
   console.log(`EchoVoice running on port ${PORT}`);
   checkRequiredEnvVars();
   cleanupOrphanedVoices();
+  startKeepalivePing();
 });
