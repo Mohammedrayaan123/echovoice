@@ -180,7 +180,6 @@
 
     <!-- Step 4: the core feature — compare your live delivery against the AI version -->
     <section class="card comparison-card" id="comparison-section" hidden>
-      <span id="comparison-score-badge" class="score-badge" hidden></span>
       <h2 class="subheading-size">4. Now try it yourself</h2>
       <p class="hint">Read the line back, then hit Compare to see how your pitch stacks up against the AI version.</p>
 
@@ -196,45 +195,79 @@
         <button id="comparison-compare-btn" class="btn btn-primary" disabled>Compare</button>
       </div>
 
-      <div id="comparison-panels" class="comparison-panels" hidden>
-        <div class="comparison-panel">
-          <p class="comparison-panel-label">Ideal Delivery</p>
-          <canvas id="comparison-canvas-ideal" class="comparison-canvas"></canvas>
+      <!-- Results: score circle, plain-language feedback, word-highlighted
+           script, then the detailed graphs (collapsed by default). Hidden
+           until a Compare succeeds. -->
+      <div id="comparison-results" class="comparison-results" hidden>
+        <div class="score-circle-wrap">
+          <svg class="score-circle-svg" viewBox="0 0 120 120" width="120" height="120">
+            <circle class="score-circle-track" cx="60" cy="60" r="54"></circle>
+            <circle id="score-circle-ring" class="score-circle-ring" cx="60" cy="60" r="54"></circle>
+          </svg>
+          <div class="score-circle-center">
+            <span id="score-circle-number" class="score-circle-number">0</span>
+          </div>
+          <p id="score-tier-label" class="score-tier-label"></p>
         </div>
-        <div class="comparison-panel">
-          <p class="comparison-panel-label">Your Attempt</p>
-          <canvas id="comparison-canvas-attempt" class="comparison-canvas"></canvas>
-        </div>
-      </div>
-      <p id="comparison-message" class="pitch-viz-empty" hidden></p>
 
-      <div id="comparison-controls" class="comparison-controls" hidden>
-        <div class="row">
-          <button id="play-ideal-btn" class="btn btn-secondary" type="button">Play Ideal</button>
-          <button id="play-yours-btn" class="btn btn-secondary" type="button">Play Yours</button>
-          <button id="play-both-btn" class="btn btn-secondary" type="button">Play Both</button>
-        </div>
-        <div class="row">
-          <button id="skip-back-btn" class="transport-btn transport-btn-skip" type="button" aria-label="Skip back 5 seconds">&laquo;5</button>
-          <button id="play-pause-btn" class="transport-btn" type="button" aria-label="Play or pause">&#9658;</button>
-          <button id="skip-fwd-btn" class="transport-btn transport-btn-skip" type="button" aria-label="Skip forward 5 seconds">5&raquo;</button>
-          <div class="speed-toggle" role="group" aria-label="Playback speed">
-            <button class="speed-btn" data-speed="0.5" type="button">0.5&times;</button>
-            <button class="speed-btn active" data-speed="1" type="button">1&times;</button>
-            <button class="speed-btn" data-speed="1.5" type="button">1.5&times;</button>
+        <div id="feedback-cards" class="feedback-cards"></div>
+
+        <div id="script-highlight-card" class="script-highlight-card" hidden>
+          <p class="script-highlight-label">Your Script — Word-by-Word Match</p>
+          <p id="script-highlight-words" class="script-highlight-words"></p>
+          <div class="script-highlight-legend">
+            <span class="legend-item"><span class="legend-dot" style="background: var(--color-success)"></span>Strong Match</span>
+            <span class="legend-item"><span class="legend-dot" style="background: var(--color-accent)"></span>Good</span>
+            <span class="legend-item"><span class="legend-dot" style="background: var(--color-warning)"></span>Needs Work</span>
+            <span class="legend-item"><span class="legend-dot" style="background: var(--color-error)"></span>Mismatch</span>
           </div>
         </div>
+
+        <button id="detail-toggle-btn" class="detail-toggle-btn" type="button" aria-expanded="false">Show detailed pitch analysis &#9660;</button>
+
+        <div id="detail-collapse" class="detail-collapse">
+          <div id="comparison-panels" class="comparison-panels" hidden>
+            <div class="comparison-panel">
+              <p class="comparison-panel-label">Ideal Delivery</p>
+              <canvas id="comparison-canvas-ideal" class="comparison-canvas"></canvas>
+            </div>
+            <div class="comparison-panel">
+              <p class="comparison-panel-label">Your Attempt</p>
+              <canvas id="comparison-canvas-attempt" class="comparison-canvas"></canvas>
+            </div>
+          </div>
+
+          <div id="comparison-controls" class="comparison-controls" hidden>
+            <div class="row">
+              <button id="play-ideal-btn" class="btn btn-secondary" type="button">Play Ideal</button>
+              <button id="play-yours-btn" class="btn btn-secondary" type="button">Play Yours</button>
+              <button id="play-both-btn" class="btn btn-secondary" type="button">Play Both</button>
+            </div>
+            <div class="row">
+              <button id="skip-back-btn" class="transport-btn transport-btn-skip" type="button" aria-label="Skip back 5 seconds">&laquo;5</button>
+              <button id="play-pause-btn" class="transport-btn" type="button" aria-label="Play or pause">&#9658;</button>
+              <button id="skip-fwd-btn" class="transport-btn transport-btn-skip" type="button" aria-label="Skip forward 5 seconds">5&raquo;</button>
+              <div class="speed-toggle" role="group" aria-label="Playback speed">
+                <button class="speed-btn" data-speed="0.5" type="button">0.5&times;</button>
+                <button class="speed-btn active" data-speed="1" type="button">1&times;</button>
+                <button class="speed-btn" data-speed="1.5" type="button">1.5&times;</button>
+              </div>
+            </div>
+          </div>
+
+          <p class="hint pitch-viz-legend">
+            <span class="legend-ai">&mdash; ideal delivery</span>
+            &nbsp;&nbsp;
+            <span class="legend-user">&mdash; your attempt</span>
+            &nbsp;&nbsp;
+            <span class="legend-diverge">red band = pitch drifted more than ~2 semitones</span>
+          </p>
+        </div>
       </div>
 
-      <button id="try-again-btn" class="btn btn-secondary" type="button" hidden>Try Again</button>
+      <p id="comparison-message" class="pitch-viz-empty" hidden></p>
 
-      <p class="hint pitch-viz-legend">
-        <span class="legend-ai">&mdash; ideal delivery</span>
-        &nbsp;&nbsp;
-        <span class="legend-user">&mdash; your attempt</span>
-        &nbsp;&nbsp;
-        <span class="legend-diverge">red band = pitch drifted more than ~2 semitones</span>
-      </p>
+      <button id="try-again-btn" class="btn btn-secondary" type="button" hidden>Try Again</button>
     </section>
   </main>
 

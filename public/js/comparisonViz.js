@@ -13,6 +13,7 @@
 // whether this module can draw anything.
 
 import { extractPitchContour } from "./pitchUtils.js";
+import { getScoreTier, generateFeedbackCards, mapWordsToColors } from "./comparisonFeedback.js";
 
 const GRID_STEP_SECONDS = 0.02; // 20ms alignment grid, per spec
 const VOICED_GAP_TOLERANCE_SECONDS = 0.12; // no raw pitch point within this = silence at that instant
@@ -20,12 +21,23 @@ const NOTICEABLE_SEMITONES = 2; // > this = "diverges" for banding + the match-%
 const PANEL_HEIGHT_CSS = 160; // px — matches the spec'd canvas height
 const PAD_X_CSS = 4;
 const PAD_Y_CSS = 8;
+const SCORE_RING_RADIUS = 54; // matches the 120x120 SVG viewBox in index.html
+const SCORE_RING_CIRCUMFERENCE = 2 * Math.PI * SCORE_RING_RADIUS;
+const SCORE_ANIMATION_MS = 1200;
 
 let idealCanvas = null;
 let attemptCanvas = null;
-let badgeEl = null;
 let messageEl = null;
 let panelsEl = null;
+let resultsEl = null;
+let scoreRingEl = null;
+let scoreNumberEl = null;
+let scoreTierLabelEl = null;
+let feedbackCardsEl = null;
+let scriptHighlightCardEl = null;
+let scriptHighlightWordsEl = null;
+let detailToggleBtn = null;
+let detailCollapseEl = null;
 
 // Cached off-DOM canvases holding the static contour+band drawing, so the
 // playhead can redraw every animation frame by compositing two images
@@ -34,13 +46,41 @@ const idealBase = document.createElement("canvas");
 const attemptBase = document.createElement("canvas");
 
 let currentXScale = null; // (seconds) => device px, or null when nothing's drawn
+let scoreCountRaf = null;
 
-export function init({ idealCanvas: ideal, attemptCanvas: attempt, badgeEl: badge, messageEl: message, panelsEl: panels }) {
+export function init({
+  idealCanvas: ideal,
+  attemptCanvas: attempt,
+  messageEl: message,
+  panelsEl: panels,
+  resultsEl: results,
+  scoreRingEl: scoreRing,
+  scoreNumberEl: scoreNumber,
+  scoreTierLabelEl: scoreTierLabel,
+  feedbackCardsEl: feedbackCards,
+  scriptHighlightCardEl: scriptHighlightCard,
+  scriptHighlightWordsEl: scriptHighlightWords,
+  detailToggleBtn: detailToggle,
+  detailCollapseEl: detailCollapse,
+}) {
   idealCanvas = ideal;
   attemptCanvas = attempt;
-  badgeEl = badge;
   messageEl = message;
   panelsEl = panels;
+  resultsEl = results;
+  scoreRingEl = scoreRing;
+  scoreNumberEl = scoreNumber;
+  scoreTierLabelEl = scoreTierLabel;
+  feedbackCardsEl = feedbackCards;
+  scriptHighlightCardEl = scriptHighlightCard;
+  scriptHighlightWordsEl = scriptHighlightWords;
+  detailToggleBtn = detailToggle;
+  detailCollapseEl = detailCollapse;
+
+  if (scoreRingEl) {
+    scoreRingEl.style.strokeDasharray = `${SCORE_RING_CIRCUMFERENCE}`;
+    scoreRingEl.style.strokeDashoffset = `${SCORE_RING_CIRCUMFERENCE}`;
+  }
 }
 
 function cssVar(name) {
@@ -90,7 +130,7 @@ function resampleLinear(points, gridTimes) {
  * unlike raw Hz).
  * @param {Array<{time:number, frequency:number}>} idealPoints
  * @param {Array<{time:number, frequency:number}>} attemptPoints
- * @returns {{alignedIdeal: Array<{time:number,pitch:number|null}>, alignedAttempt: Array<{time:number,pitch:number|null}>, divergenceMap: Array<{time:number,semitones:number|null,diverges:boolean|null}>, score: number, duration: number}}
+ * @returns {{alignedIdeal: Array<{time:number,pitch:number|null}>, alignedAttempt: Array<{time:number,pitch:number|null}>, divergenceMap: Array<{time:number,semitones:number|null,diverges:boolean|null}>, score: number, duration: number, idealDuration: number, attemptDuration: number}}
  */
 export function computeDivergence(idealPoints, attemptPoints) {
   const idealDuration = idealPoints.length ? idealPoints[idealPoints.length - 1].time : 0;
@@ -123,7 +163,7 @@ export function computeDivergence(idealPoints, attemptPoints) {
 
   const score = validCount > 0 ? Math.round((withinThreshold / validCount) * 100) : 0;
 
-  return { alignedIdeal, alignedAttempt, divergenceMap, score, duration };
+  return { alignedIdeal, alignedAttempt, divergenceMap, score, duration, idealDuration, attemptDuration };
 }
 
 function toDivergenceBands(divergenceMap) {
@@ -283,14 +323,104 @@ export function setPlayhead(time) {
   compositeFrame(time);
 }
 
-function updateBadge(score) {
-  if (!badgeEl) return;
-  badgeEl.textContent = `${score}% match`;
-  badgeEl.hidden = false;
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
 }
 
-function hideBadge() {
-  if (badgeEl) badgeEl.hidden = true;
+// Ring fill is CSS-driven (a stroke-dashoffset transition) per spec — this
+// just sets the target offset, forcing the starting "empty ring" state to
+// actually paint first so the browser doesn't coalesce both writes into one
+// frame and skip the transition. Only the number counter is JS-driven.
+function animateScore(score) {
+  if (scoreRingEl) {
+    scoreRingEl.style.transition = "none";
+    scoreRingEl.style.strokeDashoffset = `${SCORE_RING_CIRCUMFERENCE}`;
+    void scoreRingEl.getBoundingClientRect(); // force layout so the reset above actually takes effect
+    scoreRingEl.style.transition = "";
+    scoreRingEl.style.strokeDashoffset = `${SCORE_RING_CIRCUMFERENCE * (1 - score / 100)}`;
+  }
+
+  cancelAnimationFrame(scoreCountRaf);
+  const start = performance.now();
+  function tick(now) {
+    const t = Math.min(1, (now - start) / SCORE_ANIMATION_MS);
+    if (scoreNumberEl) scoreNumberEl.textContent = String(Math.round(easeOutCubic(t) * score));
+    if (t < 1) scoreCountRaf = requestAnimationFrame(tick);
+  }
+  scoreCountRaf = requestAnimationFrame(tick);
+}
+
+function renderScoreTier(score) {
+  const tier = getScoreTier(score);
+  const colorValue = `var(${tier.colorVar})`;
+  if (scoreRingEl) scoreRingEl.style.stroke = colorValue;
+  if (scoreNumberEl) scoreNumberEl.style.color = colorValue;
+  if (scoreTierLabelEl) scoreTierLabelEl.style.color = colorValue;
+  if (scoreTierLabelEl) scoreTierLabelEl.textContent = tier.label;
+}
+
+function renderFeedbackCards(cards) {
+  if (!feedbackCardsEl) return;
+  feedbackCardsEl.innerHTML = "";
+  for (const { icon, text } of cards) {
+    const card = document.createElement("div");
+    card.className = "feedback-card";
+
+    const iconEl = document.createElement("span");
+    iconEl.className = "feedback-card-icon";
+    iconEl.textContent = icon;
+
+    const textEl = document.createElement("span");
+    textEl.className = "feedback-card-text";
+    textEl.textContent = text;
+
+    card.append(iconEl, textEl);
+    feedbackCardsEl.appendChild(card);
+  }
+}
+
+// Word colors are applied via inline styles (one <span> per word), not a
+// generated CSS class per word, per spec.
+function renderScriptHighlight(scriptText, duration, divergenceMap) {
+  if (!scriptHighlightCardEl || !scriptHighlightWordsEl) return;
+  scriptHighlightCardEl.hidden = false;
+  scriptHighlightWordsEl.innerHTML = "";
+
+  const words = mapWordsToColors(scriptText, duration, divergenceMap);
+  if (!words) {
+    // Too few words for per-word coloring to mean anything — plain text instead.
+    scriptHighlightWordsEl.textContent = scriptText;
+    scriptHighlightWordsEl.style.color = "var(--color-mist)";
+    return;
+  }
+
+  scriptHighlightWordsEl.style.color = "";
+  words.forEach(({ word, colorVar }, i) => {
+    const span = document.createElement("span");
+    span.textContent = word;
+    if (colorVar) span.style.color = `var(${colorVar})`;
+    scriptHighlightWordsEl.appendChild(span);
+    if (i < words.length - 1) scriptHighlightWordsEl.appendChild(document.createTextNode(" "));
+  });
+}
+
+function hideScriptHighlight() {
+  if (scriptHighlightCardEl) scriptHighlightCardEl.hidden = true;
+}
+
+// Forces the detailed-graphs section back to its default collapsed state —
+// called at the start of every compare() (a fresh result always starts
+// collapsed) and on reset(). The click-to-expand interaction itself is
+// wired in app.js, which holds its own references to these same elements.
+function resetDetailToggle() {
+  if (detailCollapseEl) {
+    detailCollapseEl.style.maxHeight = "";
+    detailCollapseEl.classList.remove("detail-collapse-expanded");
+  }
+  if (detailToggleBtn) {
+    detailToggleBtn.textContent = "Show detailed pitch analysis ▼";
+    detailToggleBtn.setAttribute("aria-expanded", "false");
+  }
 }
 
 function showMessage(text) {
@@ -299,6 +429,7 @@ function showMessage(text) {
     messageEl.hidden = false;
   }
   if (panelsEl) panelsEl.hidden = true;
+  if (resultsEl) resultsEl.hidden = true;
 }
 
 function hideMessage() {
@@ -307,19 +438,22 @@ function hideMessage() {
 
 /**
  * Run the full Step 2-4 pipeline: extract pitch from both clips, compute
- * semitone divergence, and draw the two-panel comparison. Never throws —
- * on failure (bad decode, no voiced signal, etc.) it shows a friendly inline
- * message and leaves the score badge hidden, but never touches audio
- * playback, which callers own independently.
- * @param {{aiUrl: string, userUrl: string}} args
+ * semitone divergence, draw the two-panel comparison, and render the
+ * plain-language feedback layer (score circle, feedback cards, word
+ * highlighting) on top of it. Never throws — on failure (bad decode, no
+ * voiced signal, etc.) it shows a friendly inline message and hides the
+ * whole results section, but never touches audio playback, which callers
+ * own independently.
+ * @param {{aiUrl: string, userUrl: string, scriptText?: string}} args
  * @returns {Promise<{score: number}|null>} null on failure
  */
-export async function compare({ aiUrl, userUrl }) {
+export async function compare({ aiUrl, userUrl, scriptText }) {
   if (!idealCanvas || !attemptCanvas) return null;
 
   hideMessage();
-  hideBadge();
+  resetDetailToggle();
   if (panelsEl) panelsEl.hidden = false;
+  if (resultsEl) resultsEl.hidden = true; // stays hidden until there's an actual result to show
 
   try {
     const [idealPoints, attemptPoints] = await Promise.all([extractPitchContour(aiUrl), extractPitchContour(userUrl)]);
@@ -330,7 +464,16 @@ export async function compare({ aiUrl, userUrl }) {
 
     const divergence = computeDivergence(idealPoints, attemptPoints);
     drawBase({ idealPoints, attemptPoints, divergenceMap: divergence.divergenceMap, duration: divergence.duration });
-    updateBadge(divergence.score);
+
+    if (resultsEl) resultsEl.hidden = false;
+    renderScoreTier(divergence.score);
+    animateScore(divergence.score);
+    renderFeedbackCards(generateFeedbackCards(divergence));
+    if (scriptText) {
+      renderScriptHighlight(scriptText, divergence.duration, divergence.divergenceMap);
+    } else {
+      hideScriptHighlight();
+    }
 
     return { score: divergence.score };
   } catch {
@@ -339,12 +482,16 @@ export async function compare({ aiUrl, userUrl }) {
   }
 }
 
-/** Resets the panels/badge/message to their pre-comparison empty state. */
+/** Resets the results section (score, feedback, highlighting, graphs) and message to their pre-comparison empty state. */
 export function reset() {
   currentXScale = null;
-  hideBadge();
+  cancelAnimationFrame(scoreCountRaf);
   hideMessage();
+  resetDetailToggle();
+  if (resultsEl) resultsEl.hidden = true;
   if (panelsEl) panelsEl.hidden = true;
+  if (feedbackCardsEl) feedbackCardsEl.innerHTML = "";
+  hideScriptHighlight();
   if (idealCanvas) idealCanvas.getContext("2d").clearRect(0, 0, idealCanvas.width, idealCanvas.height);
   if (attemptCanvas) attemptCanvas.getContext("2d").clearRect(0, 0, attemptCanvas.width, attemptCanvas.height);
 }

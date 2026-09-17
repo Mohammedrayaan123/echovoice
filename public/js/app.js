@@ -73,10 +73,18 @@ const comparisonRecordBtn = document.getElementById("comparison-record-btn");
 const comparisonStatus = document.getElementById("comparison-status");
 const comparisonPlayback = document.getElementById("comparison-playback");
 const comparisonCompareBtn = document.getElementById("comparison-compare-btn");
+const comparisonResults = document.getElementById("comparison-results");
 const comparisonPanels = document.getElementById("comparison-panels");
 const comparisonMessage = document.getElementById("comparison-message");
 const comparisonControls = document.getElementById("comparison-controls");
-const comparisonScoreBadge = document.getElementById("comparison-score-badge");
+const scoreRingEl = document.getElementById("score-circle-ring");
+const scoreNumberEl = document.getElementById("score-circle-number");
+const scoreTierLabelEl = document.getElementById("score-tier-label");
+const feedbackCardsEl = document.getElementById("feedback-cards");
+const scriptHighlightCardEl = document.getElementById("script-highlight-card");
+const scriptHighlightWordsEl = document.getElementById("script-highlight-words");
+const detailToggleBtn = document.getElementById("detail-toggle-btn");
+const detailCollapseEl = document.getElementById("detail-collapse");
 const idealCanvas = document.getElementById("comparison-canvas-ideal");
 const attemptCanvas = document.getElementById("comparison-canvas-attempt");
 const playIdealBtn = document.getElementById("play-ideal-btn");
@@ -106,9 +114,25 @@ initPitchViz(document.getElementById("pitch-viz"));
 initComparisonViz({
   idealCanvas,
   attemptCanvas,
-  badgeEl: comparisonScoreBadge,
   messageEl: comparisonMessage,
   panelsEl: comparisonPanels,
+  resultsEl: comparisonResults,
+  scoreRingEl,
+  scoreNumberEl,
+  scoreTierLabelEl,
+  feedbackCardsEl,
+  scriptHighlightCardEl,
+  scriptHighlightWordsEl,
+  detailToggleBtn,
+  detailCollapseEl,
+});
+
+// Detailed-graphs collapse: starts closed (comparisonViz.js resets it to this
+// state on every fresh compare()/reset()); this click handler just flips it.
+detailToggleBtn.addEventListener("click", () => {
+  const expanded = detailCollapseEl.classList.toggle("detail-collapse-expanded");
+  detailToggleBtn.textContent = expanded ? "Hide detailed pitch analysis ▲" : "Show detailed pitch analysis ▼";
+  detailToggleBtn.setAttribute("aria-expanded", String(expanded));
 });
 
 // Which audio element(s) "Play/Pause" and skip ±5s act on — set by whichever
@@ -461,7 +485,11 @@ comparisonCompareBtn.addEventListener("click", async () => {
   tryAgainBtn.hidden = false;
   transportMode = null;
 
-  const result = await compareDeliveries({ aiUrl: resultPlayback.src, userUrl: comparisonPlayback.src });
+  const result = await compareDeliveries({
+    aiUrl: resultPlayback.src,
+    userUrl: comparisonPlayback.src,
+    scriptText: comparisonScriptText.textContent,
+  });
   comparisonStatus.textContent = result ? `Done — ${result.score}% match.` : "Done.";
   comparisonCompareBtn.disabled = false;
 });
