@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EchoVoice</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <nav class="navbar">
+    <div class="navbar-inner">
+      <span class="navbar-wordmark">EchoVoice</span>
+      <button class="navbar-icon-btn" type="button" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6">
+          <circle cx="12" cy="12" r="3"></circle>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.43.7.7 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+      </button>
+    </div>
+  </nav>
+  <main class="app">
+    <p class="subtitle">Hear yourself say it before you say it.</p>
+
+    <!-- Step 1: voice setup — voiceCapture.js renders a compact trigger here
+         ("Clone Your Voice" button, or a "voice ready" summary once done) and
+         owns a separate 5-step modal (appended to <body>) for the actual
+         capture + verification wizard. Nothing else here is static. -->
+    <section class="card" id="capture-section">
+      <h2>1. Set Up Your Voice</h2>
+      <div id="capture-container"></div>
+    </section>
+
+    <!-- Step 2: type the script -->
+    <section class="card" id="script-section">
+      <h2>2. Type your script</h2>
+      <div class="script-field">
+        <textarea id="script-input" rows="4" placeholder="Type the sentence or answer you want to hear back in your own voice..."></textarea>
+        <span id="script-char-count" class="char-count">0</span>
+      </div>
+
+      <!-- Pitch visualization: words light up in sync with playback, with an arrow
+           showing whether your pitch rose or fell across that word. -->
+      <div id="pitch-viz" class="pitch-viz">
+        <p class="pitch-viz-empty">Generate speech to see your pitch visualization here.</p>
+      </div>
+      <p class="hint pitch-viz-legend">
+        <span class="trend-rising">&uarr; rising</span>
+        &nbsp;&nbsp;
+        <span class="trend-falling">&darr; falling</span>
+        &nbsp;&nbsp;
+        no arrow = flat / not enough voiced signal to tell
+      </p>
+    </section>
+
+    <!-- Step 3: generate + play -->
+    <section class="card" id="generate-section">
+      <h2>3. Hear it back</h2>
+
+      <div class="field">
+        <label for="language-select">Language</label>
+        <select id="language-select">
+          <option value="">Auto-detect from text</option>
+          <option value="en">English</option>
+          <option value="es">Spanish</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+          <option value="it">Italian</option>
+          <option value="pt">Portuguese</option>
+          <option value="nl">Dutch</option>
+          <option value="pl">Polish</option>
+          <option value="tr">Turkish</option>
+          <option value="ru">Russian</option>
+          <option value="uk">Ukrainian</option>
+          <option value="ar">Arabic</option>
+          <option value="hi">Hindi</option>
+          <option value="ta">Tamil</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+          <option value="zh">Chinese</option>
+          <option value="id">Indonesian</option>
+          <option value="ms">Malay</option>
+          <option value="fil">Filipino</option>
+          <option value="vi">Vietnamese</option>
+          <option value="sv">Swedish</option>
+          <option value="da">Danish</option>
+          <option value="no">Norwegian</option>
+          <option value="fi">Finnish</option>
+          <option value="el">Greek</option>
+          <option value="cs">Czech</option>
+          <option value="sk">Slovak</option>
+          <option value="hu">Hungarian</option>
+          <option value="ro">Romanian</option>
+          <option value="bg">Bulgarian</option>
+          <option value="hr">Croatian</option>
+        </select>
+        <p class="hint">
+          Controls which language is spoken. There's no separate "accent" dial — for a cloned voice, the accent
+          comes from your recorded sample, not a setting. To hear a different accent, record your sample in it.
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="model-select">Model</label>
+        <select id="model-select">
+          <option value="eleven_multilingual_v2" selected>Multilingual v2 — most accurate to your voice (default)</option>
+          <option value="eleven_flash_v2_5">Flash — fastest, lower clone accuracy</option>
+          <option value="eleven_v3">v3 — most expressive, slower to generate</option>
+        </select>
+        <p class="hint">
+          Multilingual v2 is the default because it clones your voice more accurately than Flash. Language
+          forcing above only takes effect on Flash — on Multilingual v2 / v3 the language is auto-detected
+          from the text regardless of the dropdown. Multilingual v2 / v3 also use ~2x the character quota vs. Flash.
+        </p>
+      </div>
+
+      <div class="field">
+        <label>Voice settings</label>
+        <div class="slider-row">
+          <span class="slider-label">Stability</span>
+          <input type="range" id="stability-input" min="0" max="1" step="0.05" value="0.5" />
+          <span class="slider-value" id="stability-value">0.50</span>
+        </div>
+        <div class="slider-row">
+          <span class="slider-label">Similarity</span>
+          <input type="range" id="similarity-input" min="0" max="1" step="0.05" value="1" />
+          <span class="slider-value" id="similarity-value">1.00</span>
+        </div>
+        <div class="slider-row">
+          <span class="slider-label">Style</span>
+          <input type="range" id="style-input" min="0" max="1" step="0.05" value="0" />
+          <span class="slider-value" id="style-value">0.00</span>
+        </div>
+        <p class="hint">
+          Stability: lower = more expressive/variable, higher = more monotone/consistent. Similarity: how closely
+          it sticks to your cloned voice — defaulted to max for accuracy. Style: exaggerates the voice's character;
+          defaulted to 0 so it doesn't override your voice's natural sound. (Speaker boost is also on, fixed, no slider.)
+        </p>
+      </div>
+
+      <div class="row">
+        <button id="generate-btn" class="btn btn-primary" disabled>Generate Speech</button>
+        <button id="backup-btn" class="btn btn-secondary">Play Backup Clip</button>
+      </div>
+
+      <!-- Shown while synthesizeSpeech() is in flight — a breathing waveform
+           instead of a spinner or a progress bar (ElevenLabs gives us no real
+           progress to report). -->
+      <div id="generate-loading" class="loading-block" hidden>
+        <canvas id="generate-loading-canvas" class="loading-waveform"></canvas>
+        <p class="loading-label">Generating your ideal delivery&hellip;</p>
+      </div>
+
+      <!-- Shown instead of a raw error for recoverable failures (e.g. an expired
+           voice profile) — a plain-language message plus a way to fix it, so
+           nothing technical is ever what's on screen during a demo. -->
+      <div id="error-recovery" class="error-recovery" hidden>
+        <div class="error-recovery-body">
+          <p id="error-recovery-message"></p>
+          <button id="error-recovery-btn" class="btn btn-secondary">Record Again</button>
+        </div>
+        <button id="error-recovery-dismiss" class="error-recovery-dismiss" type="button" aria-label="Dismiss">&times;</button>
+      </div>
+
+      <div id="playback-card" class="playback-card" hidden>
+        <p class="playback-card-label">Ideal Delivery</p>
+        <canvas id="playback-waveform" class="playback-waveform"></canvas>
+        <div class="playback-controls-row">
+          <button id="playback-play-btn" class="ghost-icon-btn" type="button" aria-label="Play">&#9658;</button>
+          <div class="playback-progress-track">
+            <div id="playback-progress-fill" class="playback-progress-fill"></div>
+          </div>
+          <span id="playback-time" class="playback-time">00:00 / 00:00</span>
+        </div>
+      </div>
+      <audio id="result-playback" hidden></audio>
+    </section>
+
+    <!-- Step 4: the core feature — compare your live delivery against the AI version -->
+    <section class="card comparison-card" id="comparison-section" hidden>
+      <span id="comparison-score-badge" class="score-badge" hidden></span>
+      <h2 class="subheading-size">4. Now try it yourself</h2>
+      <p class="hint">Read the line back, then hit Compare to see how your pitch stacks up against the AI version.</p>
+
+      <p id="comparison-script-text" class="comparison-script-text"></p>
+
+      <div class="row">
+        <button id="comparison-record-btn" class="record-btn" type="button" aria-label="Record Your Attempt">🎤</button>
+        <span id="comparison-status" class="status"></span>
+      </div>
+      <audio id="comparison-playback" controls hidden></audio>
+
+      <div class="row">
+        <button id="comparison-compare-btn" class="btn btn-primary" disabled>Compare</button>
+      </div>
+
+      <div id="comparison-panels" class="comparison-panels" hidden>
+        <div class="comparison-panel">
+          <p class="comparison-panel-label">Ideal Delivery</p>
+          <canvas id="comparison-canvas-ideal" class="comparison-canvas"></canvas>
+        </div>
+        <div class="comparison-panel">
+          <p class="comparison-panel-label">Your Attempt</p>
+          <canvas id="comparison-canvas-attempt" class="comparison-canvas"></canvas>
+        </div>
+      </div>
+      <p id="comparison-message" class="pitch-viz-empty" hidden></p>
+
+      <div id="comparison-controls" class="comparison-controls" hidden>
+        <div class="row">
+          <button id="play-ideal-btn" class="btn btn-secondary" type="button">Play Ideal</button>
+          <button id="play-yours-btn" class="btn btn-secondary" type="button">Play Yours</button>
+          <button id="play-both-btn" class="btn btn-secondary" type="button">Play Both</button>
+        </div>
+        <div class="row">
+          <button id="skip-back-btn" class="transport-btn transport-btn-skip" type="button" aria-label="Skip back 5 seconds">&laquo;5</button>
+          <button id="play-pause-btn" class="transport-btn" type="button" aria-label="Play or pause">&#9658;</button>
+          <button id="skip-fwd-btn" class="transport-btn transport-btn-skip" type="button" aria-label="Skip forward 5 seconds">5&raquo;</button>
+          <div class="speed-toggle" role="group" aria-label="Playback speed">
+            <button class="speed-btn" data-speed="0.5" type="button">0.5&times;</button>
+            <button class="speed-btn active" data-speed="1" type="button">1&times;</button>
+            <button class="speed-btn" data-speed="1.5" type="button">1.5&times;</button>
+          </div>
+        </div>
+      </div>
+
+      <button id="try-again-btn" class="btn btn-secondary" type="button" hidden>Try Again</button>
+
+      <p class="hint pitch-viz-legend">
+        <span class="legend-ai">&mdash; ideal delivery</span>
+        &nbsp;&nbsp;
+        <span class="legend-user">&mdash; your attempt</span>
+        &nbsp;&nbsp;
+        <span class="legend-diverge">red band = pitch drifted more than ~2 semitones</span>
+      </p>
+    </section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

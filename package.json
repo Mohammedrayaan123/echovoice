@@ -1,0 +1,21 @@
+{
+  "name": "echovoice",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "EchoVoice — rehearsal tool with cloned-voice playback",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "multer": "^2.0.0",
+    "pitchy": "^4.1.0"
+  }
+}

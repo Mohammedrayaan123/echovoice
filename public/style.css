@@ -1,0 +1,1681 @@
+/* EchoVoice — styled per DESIGN.md ("Voice rehearsal instrument on a midnight
+   canvas"). Dark instrument-panel aesthetic: near-black surfaces, one accent
+   color reserved for the single primary action per screen, hairline borders
+   instead of shadows, no bold type. See DESIGN.md at the project root for the
+   full system this file implements. */
+
+:root {
+  /* ── Surfaces ── */
+  --color-void: #08090a;
+  --color-carbon: #0f1011;
+  --color-obsidian: #161718;
+  --color-graphite: #23252a;
+  --color-smoke: #383b3f;
+
+  /* ── Text ── */
+  --color-ash: #62666d;
+  --color-fog: #8a8f98;
+  --color-mist: #d0d6e0;
+  --color-paper: #ffffff;
+
+  /* ── Accent ── */
+  --color-accent: #e4f222;
+  --color-accent-text: #08090a;
+
+  /* ── Semantic ── */
+  --color-success: #27a644;
+  --color-error: #eb5757;
+  --color-info: #02b8cc;
+  --color-tag: #6366f1;
+
+  /* ── Waveform & Pitch ── */
+  --color-waveform-ideal: #e4f222;
+  --color-waveform-user: #02b8cc;
+  --color-waveform-bg: #0f1011;
+  --color-divergence: #eb5757;
+
+  /* ── Type ── */
+  --font-primary: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --fw-regular: 400;
+  --fw-medium: 510;
+  --fw-semi: 590;
+
+  /* ── Spacing & shape ── */
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-12: 12px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-48: 48px;
+  --spacing-64: 64px;
+
+  --radius-sm: 2px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+  --radius-pill: 9999px;
+
+  --page-max-width: 960px;
+  --card-padding: 24px;
+  --element-gap: 8px;
+  --section-gap: 48px;
+
+  /* ── Motion ── */
+  /* Every animation in the app uses one of these two curves (entrances vs.
+     exits) — see "Overall Animation Principles": never `linear`, never plain
+     `ease`, no bounce/elastic. */
+  --ease-in: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --duration-micro: 200ms; /* hover, focus, button state changes: 150-300ms */
+  --duration-section: 400ms; /* section transitions, canvas fade-ins: 300-500ms */
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-primary);
+  background: var(--color-void);
+  color: var(--color-mist);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+::selection {
+  background: rgba(228, 242, 34, 0.2); /* --color-accent at 20% */
+  color: var(--color-paper);
+}
+
+/* A reduced-motion user gets none of the decorative loop animations below
+   (idle pulses, rings, breathing loaders, entrance slides) — only the
+   essential, near-instant state changes (color swaps) that CSS applies
+   unconditionally regardless of this query. Every keyframe animation in this
+   file is declared inside this block for exactly that reason. */
+@media (prefers-reduced-motion: no-preference) {
+  .vc-record-trigger:not(:disabled) {
+    animation: vc-record-idle-pulse 4s var(--ease-in) infinite;
+  }
+
+  .vc-stop-btn::after {
+    animation: vc-ring-expand 1.5s var(--ease-out) infinite;
+  }
+
+  .status.generating,
+  .loading-label {
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  .toast {
+    animation: toast-in var(--duration-section) var(--ease-out);
+  }
+
+  .toast.toast-leaving {
+    animation: toast-out 200ms var(--ease-in) forwards;
+  }
+}
+
+/* ===== Navigation bar ===== */
+
+.navbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  height: 56px;
+  background: var(--color-carbon);
+  border-bottom: 1px solid var(--color-graphite);
+  z-index: 900;
+}
+
+.navbar-inner {
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.navbar-wordmark {
+  font-family: var(--font-primary);
+  font-size: 16px;
+  font-weight: var(--fw-medium);
+  color: var(--color-paper);
+  letter-spacing: -0.012em;
+}
+
+.navbar-icon-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--color-mist);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--duration-micro) var(--ease-in);
+}
+
+.navbar-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ===== Page layout ===== */
+
+.app {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: 80px 20px 80px; /* top: clears the fixed 56px nav + breathing room */
+}
+
+.subtitle {
+  color: var(--color-fog);
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: -0.011em;
+  margin: 0 0 var(--spacing-32);
+}
+
+.card {
+  background: var(--color-carbon);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-lg);
+  padding: var(--card-padding);
+  margin-bottom: var(--spacing-20);
+}
+
+.card h2 {
+  margin: 0 0 var(--spacing-16);
+  font-size: 32px;
+  font-weight: var(--fw-medium);
+  line-height: 1.13;
+  letter-spacing: -0.022em;
+  color: var(--color-paper);
+}
+
+.hint {
+  color: var(--color-fog);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: -4px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-12);
+  flex-wrap: wrap;
+}
+
+/* ===== Buttons ===== */
+
+.btn {
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 10px 18px;
+  font-family: var(--font-primary);
+  font-size: 15px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: background var(--duration-micro) var(--ease-in), border-color var(--duration-micro) var(--ease-in),
+    color var(--duration-micro) var(--ease-in);
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #eef765;
+}
+
+.btn-primary:disabled {
+  background: var(--color-graphite);
+  color: var(--color-ash);
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--color-mist);
+  border: 1px solid var(--color-graphite);
+}
+
+.btn-secondary:hover {
+  border-color: var(--color-smoke);
+}
+
+.btn.recording {
+  background: var(--color-error);
+  color: var(--color-paper);
+}
+
+/* Record Button (Primary Action): the single accent element on a screen when
+   idle; recording state pulses red. Used for the "Now You Try" comparison
+   recorder. */
+.record-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  font-size: 1.4rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 150ms ease;
+}
+
+.record-btn:hover:not(:disabled) {
+  background: #eef765;
+}
+
+.record-btn:disabled {
+  background: var(--color-graphite);
+  color: var(--color-ash);
+  cursor: not-allowed;
+}
+
+.record-btn.recording {
+  background: var(--color-error);
+  color: var(--color-paper);
+  animation: vc-pulse-breathe 1.6s ease-in-out infinite;
+}
+
+/* ===== Status text & badges ===== */
+
+.status {
+  color: var(--color-fog);
+  font-size: 13px;
+}
+
+.status.generating {
+  color: var(--color-accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-family: var(--font-primary);
+  color: var(--color-fog);
+}
+
+.badge-success {
+  background: rgba(39, 166, 68, 0.15);
+  color: var(--color-success);
+}
+
+.badge-error {
+  background: rgba(235, 87, 87, 0.15);
+  color: var(--color-error);
+}
+
+/* ===== Toast / error recovery ===== */
+
+.error-recovery {
+  position: fixed;
+  left: 50%;
+  bottom: var(--spacing-24);
+  transform: translateX(-50%);
+  z-index: 500;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-12);
+  width: calc(100% - 40px);
+  max-width: 400px;
+  background: var(--color-obsidian);
+  border: 1px solid var(--color-graphite);
+  border-left: 2px solid var(--color-error);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-12) var(--spacing-16);
+}
+
+/* Author-stylesheet `display` beats the browser's default [hidden] rule
+   regardless of the hidden attribute — without this override the toast stays
+   laid out (just invisible) and blocks clicks under it. */
+.error-recovery[hidden] {
+  display: none;
+}
+
+.error-recovery-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.error-recovery-body p {
+  margin: 0 0 10px;
+  color: var(--color-mist);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.error-recovery-dismiss {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-fog);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.error-recovery-dismiss:hover {
+  color: var(--color-mist);
+}
+
+/* ===== Toasts ===== */
+
+.toast-container {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+  width: calc(100% - 32px);
+  max-width: 420px;
+  pointer-events: none; /* clicks pass through the gaps between toasts */
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-8);
+  background: var(--color-obsidian);
+  border: 1px solid var(--color-graphite);
+  border-left: 3px solid var(--color-info);
+  border-radius: var(--radius-md);
+  padding: 12px var(--spacing-16);
+}
+
+.toast-error { border-left-color: var(--color-error); }
+.toast-success { border-left-color: var(--color-success); }
+.toast-info { border-left-color: var(--color-info); }
+
+.toast-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  color: var(--color-mist);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.toast-dismiss {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-fog);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-micro) var(--ease-in);
+}
+
+.toast-dismiss:hover {
+  color: var(--color-mist);
+}
+
+@keyframes toast-in {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes toast-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* ===== Loading / processing states ===== */
+
+.loading-block {
+  text-align: center;
+}
+
+.loading-waveform {
+  width: 100%;
+  height: 96px;
+  display: block;
+}
+
+.loading-label {
+  margin: var(--spacing-8) 0 0;
+  color: var(--color-fog);
+  font-size: 14px;
+}
+
+/* ===== Forms ===== */
+
+textarea,
+select,
+input[type="text"] {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-mist);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  font-family: var(--font-primary);
+  font-size: 16px;
+  transition: border-color 150ms ease;
+}
+
+textarea {
+  resize: vertical;
+}
+
+#script-input {
+  min-height: 160px;
+  padding: 16px;
+}
+
+textarea:focus,
+select:focus,
+input[type="text"]:focus {
+  outline: none;
+  border-color: var(--color-mist);
+}
+
+textarea::placeholder,
+input[type="text"]::placeholder {
+  color: var(--color-fog);
+}
+
+input[type="text"] {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 14px;
+}
+
+.field {
+  margin-bottom: var(--spacing-16);
+}
+
+.field label {
+  display: block;
+  font-size: 13px;
+  color: var(--color-fog);
+  margin-bottom: 6px;
+}
+
+.field .hint {
+  margin-bottom: 0;
+}
+
+.script-field {
+  position: relative;
+}
+
+.char-count {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-ash);
+  pointer-events: none;
+}
+
+.voice-id-field {
+  margin-top: var(--spacing-16);
+  margin-bottom: 0;
+}
+
+.slider-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 44px;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: var(--spacing-8);
+}
+
+.slider-label {
+  font-size: 13px;
+  color: var(--color-fog);
+}
+
+.slider-value {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  letter-spacing: -0.013em;
+  text-align: right;
+  color: var(--color-mist);
+}
+
+input[type="range"] {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
+audio {
+  width: 100%;
+  margin-top: var(--spacing-12);
+  border-radius: var(--radius-md);
+}
+
+/* ===== Pitch visualization ===== */
+
+.pitch-viz {
+  margin-top: var(--spacing-8);
+  background: var(--color-waveform-bg);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-16);
+  min-height: 1.6em;
+  line-height: 2;
+}
+
+.pitch-viz-empty {
+  margin: 0;
+  color: var(--color-fog);
+  font-size: 13px;
+  text-align: center;
+}
+
+.pitch-viz-ready {
+  text-align: left;
+}
+
+.pitch-word {
+  display: inline-block;
+  padding: 1px 3px;
+  border-radius: var(--radius-sm);
+  color: var(--color-mist);
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.pitch-word.active {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.pitch-word.trend-rising::after {
+  content: " \2191";
+  color: var(--color-success);
+}
+
+.pitch-word.trend-falling::after {
+  content: " \2193";
+  color: var(--color-error);
+}
+
+.pitch-viz-legend {
+  margin-top: 6px;
+}
+
+.pitch-viz-legend .trend-rising { color: var(--color-success); }
+.pitch-viz-legend .trend-falling { color: var(--color-error); }
+
+/* ===== AI playback card (the "Ideal Delivery" static ribbon + transport) ===== */
+
+.playback-card {
+  margin-top: var(--spacing-16);
+}
+
+.playback-card-label {
+  margin: 0 0 4px;
+  color: var(--color-fog);
+  font-size: 13px;
+}
+
+.playback-waveform {
+  width: 100%;
+  height: 96px;
+  display: block;
+  background: var(--color-waveform-bg);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-lg);
+}
+
+.playback-controls-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-12);
+  margin-top: var(--spacing-12);
+}
+
+.ghost-icon-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid var(--color-graphite);
+  color: var(--color-mist);
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color var(--duration-micro) var(--ease-in);
+}
+
+.ghost-icon-btn:hover {
+  border-color: var(--color-smoke);
+}
+
+.playback-progress-track {
+  flex: 1;
+  height: 4px;
+  background: var(--color-graphite);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.playback-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--color-accent);
+  border-radius: var(--radius-sm);
+}
+
+.playback-time {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-fog);
+}
+
+/* ===== Comparison split view ===== */
+
+.comparison-card {
+  position: relative; /* anchors the score badge to the card's top-right corner */
+}
+
+.subheading-size {
+  font-size: 24px;
+  font-weight: var(--fw-regular);
+  line-height: 1.33;
+  letter-spacing: -0.012em;
+}
+
+.comparison-script-text {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  color: var(--color-mist);
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0 0 var(--spacing-12);
+}
+
+.score-badge {
+  position: absolute;
+  top: var(--card-padding);
+  right: var(--card-padding);
+  background: var(--color-tag);
+  color: var(--color-paper);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 13px;
+  font-family: var(--font-primary);
+}
+
+.comparison-panels {
+  margin-top: var(--spacing-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+}
+
+.comparison-panel {
+  background: var(--color-waveform-bg);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-12) var(--spacing-16);
+}
+
+.comparison-panel-label {
+  margin: 0 0 4px;
+  color: var(--color-fog);
+  font-size: 13px;
+}
+
+.comparison-canvas {
+  display: block;
+  width: 100%;
+  height: 160px;
+}
+
+.comparison-controls {
+  margin-top: var(--spacing-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+}
+
+.transport-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid var(--color-graphite);
+  color: var(--color-mist);
+  font-size: 14px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 150ms ease;
+}
+
+.transport-btn:hover {
+  border-color: var(--color-smoke);
+}
+
+.transport-btn-skip {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+
+.speed-toggle {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: var(--spacing-8);
+}
+
+.speed-btn {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--color-mist);
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 4px 10px;
+  font-size: 13px;
+  font-family: var(--font-primary);
+  cursor: pointer;
+}
+
+.speed-btn.active {
+  background: var(--color-graphite);
+  color: var(--color-paper);
+}
+
+.pitch-viz-legend .legend-ai { color: var(--color-waveform-ideal); }
+.pitch-viz-legend .legend-user { color: var(--color-waveform-user); }
+.pitch-viz-legend .legend-diverge { color: var(--color-divergence); }
+
+/* ===== Voice clone trigger (outside the modal) ===== */
+
+.vc-trigger-ready {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-12);
+  flex-wrap: wrap;
+}
+
+.vc-trigger-existing {
+  margin-top: 10px;
+}
+
+.vc-trigger-existing summary {
+  color: var(--color-fog);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* ===== Voice clone modal (voiceCapture.js) ===== */
+
+.vc-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 9, 10, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+/* An author-stylesheet `display` on the same element beats the browser's own
+   default `[hidden] { display: none }` rule, regardless of the hidden
+   attribute being set — without this the overlay stays laid out full-screen
+   (just invisible) and silently blocks every click on the entire page. */
+.vc-overlay[hidden] {
+  display: none;
+}
+
+.vc-overlay.vc-open {
+  opacity: 1;
+}
+
+.vc-modal {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--color-obsidian);
+  color: var(--color-mist);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-32);
+  font-family: var(--font-primary);
+}
+
+.vc-close-btn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--color-fog);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.vc-close-btn:hover {
+  background: var(--color-graphite);
+  color: var(--color-paper);
+}
+
+/* Step indicator: a row of dots, not a segmented progress bar. */
+.vc-progress {
+  display: flex;
+  justify-content: center;
+  gap: var(--spacing-8);
+  margin-bottom: var(--spacing-8);
+}
+
+.vc-progress-seg {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-graphite);
+  transition: background var(--duration-micro) var(--ease-in), transform var(--duration-micro) var(--ease-in);
+}
+
+.vc-progress-seg.vc-current {
+  transform: scale(1.25);
+}
+
+.vc-progress-seg.vc-done,
+.vc-progress-seg.vc-current {
+  background: var(--color-accent);
+}
+
+.vc-progress-label {
+  color: var(--color-fog);
+  font-size: 13px;
+  text-align: center;
+  margin: 0 0 var(--spacing-24);
+}
+
+.vc-step {
+  animation: vc-step-in 200ms ease-in-out;
+}
+
+@keyframes vc-step-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.vc-title {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: var(--fw-medium);
+  line-height: 1.33;
+  letter-spacing: -0.012em;
+  color: var(--color-paper);
+}
+
+.vc-subtitle {
+  margin: 0 0 var(--spacing-20);
+  color: var(--color-fog);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.vc-centered {
+  text-align: center;
+}
+
+.vc-field {
+  margin-bottom: var(--spacing-20);
+}
+
+.vc-field label {
+  display: block;
+  font-size: 13px;
+  color: var(--color-fog);
+  margin-bottom: 6px;
+}
+
+.vc-select {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-mist);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font-family: var(--font-primary);
+  font-size: 14px;
+}
+
+.vc-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-12);
+  margin-top: 4px;
+}
+
+.vc-footnote {
+  color: var(--color-fog);
+  font-size: 13px;
+  text-align: center;
+  margin: 4px 0 0;
+}
+
+/* ---------- Step 1: Upload / Record ---------- */
+
+.vc-dropzone {
+  border: 1.5px dashed var(--color-graphite);
+  border-radius: var(--radius-lg);
+  padding: 28px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease;
+  margin-bottom: var(--spacing-20);
+}
+
+.vc-dropzone:hover,
+.vc-dropzone.vc-drag-over {
+  border-color: var(--color-smoke);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.vc-dropzone-icon {
+  font-size: 2rem;
+  display: block;
+  margin-bottom: var(--spacing-8);
+}
+
+.vc-dropzone-text {
+  color: var(--color-fog);
+  font-size: 13px;
+  margin: 0 0 var(--spacing-16);
+}
+
+.vc-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-fog);
+  font-size: 12px;
+  margin: 0 0 var(--spacing-16);
+}
+
+.vc-divider::before,
+.vc-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-graphite);
+}
+
+.vc-record-trigger-wrap {
+  text-align: center;
+}
+
+.vc-record-trigger-label {
+  margin: 0;
+  color: var(--color-fog);
+  font-size: 13px;
+}
+
+.vc-device-dropdown {
+  margin-top: var(--spacing-8);
+  background: var(--color-carbon);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  text-align: left;
+}
+
+.vc-device-item {
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--color-mist);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.vc-device-item:hover {
+  background: var(--color-graphite);
+}
+
+.vc-tip-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+  margin-bottom: 4px;
+}
+
+.vc-tip-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-12);
+  background: var(--color-carbon);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-12) 14px;
+}
+
+.vc-tip-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.vc-tip-title {
+  font-weight: var(--fw-semi);
+  font-size: 13px;
+  color: var(--color-mist);
+  margin-bottom: 2px;
+}
+
+.vc-tip-desc {
+  color: var(--color-fog);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ---------- Step 2 & 4: recording (countdown, waveform, timer, stop) ---------- */
+
+.vc-countdown-label {
+  text-align: center;
+  color: var(--color-fog);
+  font-size: 15px;
+  margin: 0 0 4px;
+}
+
+.vc-countdown-number {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 3.2rem;
+  font-weight: var(--fw-medium);
+  color: var(--color-accent);
+  margin: var(--spacing-16) 0;
+  animation: vc-countdown-pop 1s ease-out;
+}
+
+@keyframes vc-countdown-pop {
+  0% { transform: scale(1.5); opacity: 0; }
+  30% { transform: scale(1); opacity: 1; }
+  80% { transform: scale(1); opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.vc-waveform-canvas {
+  width: 100%;
+  height: 96px;
+  background: var(--color-waveform-bg);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-lg);
+  display: block;
+  margin-bottom: var(--spacing-12);
+  opacity: 0;
+  transition: opacity var(--duration-section) var(--ease-in);
+}
+
+.vc-waveform-canvas.vc-waveform-visible {
+  opacity: 1;
+}
+
+.vc-timer {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 20px;
+  letter-spacing: -0.013em;
+  color: var(--color-mist);
+  margin: 0 0 var(--spacing-16);
+  transition: color var(--duration-micro) var(--ease-in);
+}
+
+/* The last stretch before a recording auto-stops — see formatTimerLabel()
+   in voiceCapture.js for the threshold (proportional to each recorder's own
+   max duration, not a hardcoded "75s"; the two recorders here cap at 30s/15s). */
+.vc-timer.vc-timer-warning {
+  color: var(--color-error);
+}
+
+/* Record Button component — idle trigger (Step 1, before recording starts).
+   72x72 circle per spec; a distinct class from the shared .record-btn (used
+   solely by the comparison section, which this reskin must not touch). */
+.vc-record-trigger {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto var(--spacing-16);
+  transition: transform var(--duration-micro) var(--ease-in), box-shadow var(--duration-micro) var(--ease-in),
+    background var(--duration-micro) var(--ease-in);
+}
+
+.vc-record-trigger svg {
+  width: 28px;
+  height: 28px;
+}
+
+.vc-record-trigger:hover:not(:disabled) {
+  transform: scale(1.05);
+  box-shadow: 0 0 16px 0 rgba(228, 242, 34, 0.25);
+}
+
+.vc-record-trigger:disabled {
+  background: var(--color-graphite);
+  color: var(--color-ash);
+  cursor: not-allowed;
+}
+
+@keyframes vc-record-idle-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(228, 242, 34, 0.15); }
+  50% { transform: scale(1.03); box-shadow: 0 0 16px 0 rgba(228, 242, 34, 0.15); }
+}
+
+/* Record Button component — recording state (Step 2/4's stop button). The
+   button itself stays steady (easy to tap); only the ::after ring expands
+   and fades, signaling "I'm listening" without the button visually moving. */
+.vc-stop-btn {
+  position: relative;
+  display: block;
+  margin: 0 auto;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-pill);
+  border: none;
+  background: var(--color-error);
+  color: var(--color-paper);
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background var(--duration-micro) var(--ease-in);
+}
+
+.vc-stop-btn:hover {
+  background: #d94b4b;
+}
+
+.vc-stop-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--color-error);
+  border-radius: var(--radius-pill);
+  opacity: 0;
+}
+
+@keyframes vc-ring-expand {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+.vc-inline-warning {
+  text-align: center;
+  color: var(--color-accent);
+  font-size: 13px;
+  margin: 0 0 var(--spacing-12);
+  min-height: 1.2em;
+}
+
+/* Still used by .record-btn.recording (the comparison section's mic button —
+   out of scope for this reskin, left as-is; this keyframe just needs to keep
+   existing for it). */
+@keyframes vc-pulse-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(235, 87, 87, 0.5); }
+  50% { box-shadow: 0 0 0 14px rgba(235, 87, 87, 0); }
+}
+
+.vc-sentence-card {
+  background: var(--color-carbon);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-lg);
+  padding: 20px 18px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--color-paper);
+  margin-bottom: var(--spacing-20);
+  text-align: center;
+}
+
+/* ---------- Step 3: Review & Metadata ---------- */
+
+.vc-file-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-12);
+  background: var(--color-carbon);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-lg);
+  padding: 12px var(--spacing-16);
+  margin-bottom: var(--spacing-20);
+}
+
+.vc-file-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.vc-file-name {
+  font-weight: var(--fw-semi);
+  font-size: 14px;
+  color: var(--color-paper);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vc-thumb-waveform {
+  width: 100%;
+  height: 48px;
+  display: block;
+}
+
+.vc-file-duration {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--color-fog);
+}
+
+.vc-play-ring-wrap {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.vc-play-ring {
+  width: 56px;
+  height: 56px;
+}
+
+.vc-play-ring-bg {
+  fill: none;
+  stroke: var(--color-graphite);
+  stroke-width: 3;
+}
+
+.vc-play-ring-fg {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+  transition: stroke-dashoffset 100ms linear;
+}
+
+.vc-play-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 150ms ease;
+}
+
+.vc-play-btn:hover {
+  background: #eef765;
+}
+
+.vc-delete-btn {
+  border: none;
+  background: transparent;
+  color: var(--color-fog);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.vc-delete-btn:hover {
+  color: var(--color-error);
+  background: var(--color-graphite);
+}
+
+.vc-checkbox-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--color-mist);
+  cursor: pointer;
+  margin-bottom: var(--spacing-16);
+  line-height: 1.4;
+  position: relative;
+}
+
+.vc-checkbox-label input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.vc-checkbox-box {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border: 1.5px solid var(--color-graphite);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  position: relative;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.vc-checkbox-label input[type="checkbox"]:checked + .vc-checkbox-box {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.vc-checkbox-label input[type="checkbox"]:checked + .vc-checkbox-box::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0px;
+  width: 5px;
+  height: 9px;
+  border: solid var(--color-accent-text);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.vc-field-floating {
+  position: relative;
+  margin-bottom: var(--spacing-20);
+}
+
+.vc-field-floating input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-mist);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 18px 12px 8px;
+  font-family: var(--font-primary);
+  font-size: 15px;
+}
+
+.vc-field-floating input:focus {
+  outline: none;
+  border-color: var(--color-mist);
+}
+
+.vc-field-floating label {
+  position: absolute;
+  left: 12px;
+  top: 14px;
+  color: var(--color-fog);
+  font-size: 15px;
+  pointer-events: none;
+  transition: top 150ms ease, font-size 150ms ease, color 150ms ease;
+}
+
+.vc-field-floating input:focus + label,
+.vc-field-floating input:not(:placeholder-shown) + label {
+  top: 6px;
+  font-size: 11px;
+  color: var(--color-mist);
+}
+
+/* ---------- Cloning loading screen ---------- */
+
+.vc-indeterminate-track {
+  width: 100%;
+  height: 4px;
+  background: var(--color-graphite);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin: var(--spacing-24) 0 var(--spacing-16);
+}
+
+.vc-indeterminate-bar {
+  width: 40%;
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: var(--radius-sm);
+  animation: vc-indeterminate 1.2s ease-in-out infinite;
+}
+
+@keyframes vc-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+.vc-loading-text {
+  text-align: center;
+  color: var(--color-fog);
+  font-size: 15px;
+}
+
+.vc-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--color-graphite);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  margin: var(--spacing-24) auto;
+  animation: vc-spin 0.8s linear infinite;
+}
+
+@keyframes vc-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---------- Verification result ---------- */
+
+.vc-result-icon {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0 var(--spacing-16);
+}
+
+.vc-check-svg {
+  width: 72px;
+  height: 72px;
+}
+
+.vc-check-circle {
+  stroke: var(--color-success);
+  stroke-width: 3;
+  stroke-dasharray: 145;
+  stroke-dashoffset: 145;
+  animation: vc-draw 400ms ease-out forwards;
+}
+
+.vc-check-path {
+  stroke: var(--color-success);
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 34;
+  stroke-dashoffset: 34;
+  animation: vc-draw 300ms ease-out 300ms forwards;
+}
+
+@keyframes vc-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+.vc-alert {
+  background: var(--color-obsidian);
+  border: 1px solid var(--color-graphite);
+  border-left: 2px solid var(--color-error);
+  border-radius: var(--radius-md);
+  padding: 12px var(--spacing-16);
+  color: var(--color-mist);
+  font-size: 14px;
+  margin-bottom: var(--spacing-16);
+}
+
+.vc-alert-slide {
+  animation: vc-slide-down 200ms ease-out, vc-shake 300ms ease-in-out 200ms;
+}
+
+@keyframes vc-slide-down {
+  from { transform: translateY(-16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes vc-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  50% { transform: translateX(3px); }
+  75% { transform: translateX(-2px); }
+}
+
+/* ---------- Step 5: Completion tiles ---------- */
+
+.vc-tile-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-8);
+  margin-bottom: var(--spacing-20);
+}
+
+.vc-tile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  text-align: left;
+  background: var(--color-carbon);
+  border: 1px solid var(--color-graphite);
+  border-radius: var(--radius-lg);
+  padding: 14px var(--spacing-16);
+  color: var(--color-mist);
+  cursor: pointer;
+  transition: border-color 150ms ease;
+}
+
+.vc-tile:hover {
+  border-color: var(--color-smoke);
+}
+
+.vc-tile-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+.vc-tile-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vc-tile-title {
+  font-weight: var(--fw-semi);
+  font-size: 15px;
+  color: var(--color-paper);
+}
+
+.vc-tile-desc {
+  color: var(--color-fog);
+  font-size: 13px;
+}
+
+.vc-sample-player {
+  margin-top: -6px;
+  margin-bottom: var(--spacing-16);
+}
+
+.vc-sample-player audio {
+  width: 100%;
+}
+
+@media (max-width: 600px) {
+  .vc-overlay {
+    padding: 0;
+    background: var(--color-void);
+  }
+
+  .vc-modal {
+    max-width: 100%;
+    width: 100%;
+    height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    padding: var(--spacing-24) var(--spacing-20);
+  }
+}
+
+/* ===== Responsive ===== */
+
+body {
+  min-width: 360px;
+}
+
+@media (max-width: 640px) {
+  .navbar-wordmark {
+    font-size: 15px;
+  }
+
+  .toast-container {
+    width: calc(100% - 16px);
+    max-width: none;
+  }
+}

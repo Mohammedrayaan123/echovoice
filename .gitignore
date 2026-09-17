@@ -1,0 +1,4 @@
+.env
+node_modules/
+audio-logs/
+.claude/settings.local.json
