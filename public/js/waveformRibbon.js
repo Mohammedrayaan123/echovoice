@@ -109,6 +109,7 @@ function easeOutCubic(t) {
 export function startLiveRibbon(stream, canvas, { color = "#d0d6e0", onLevel } = {}) {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   const audioCtx = new AudioContextClass();
+  audioCtx.resume().catch(() => {});
   const source = audioCtx.createMediaStreamSource(stream);
   const analyser = audioCtx.createAnalyser();
   analyser.fftSize = 1024;

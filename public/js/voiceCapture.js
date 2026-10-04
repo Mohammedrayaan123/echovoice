@@ -143,7 +143,7 @@ function renderCapture() {
     <div class="vc-tip-cards">
       <div class="vc-tip-card"><span class="vc-tip-icon">01</span><div><div class="vc-tip-title">Find a quiet space</div><div class="vc-tip-desc">One speaker. No music, echo, or other voices.</div></div></div>
       <div class="vc-tip-card"><span class="vc-tip-icon">02</span><div><div class="vc-tip-title">Sound like yourself</div><div class="vc-tip-desc">Your usual accent and speaking voice. No performance needed.</div></div></div>
-      <div class="vc-tip-card"><span class="vc-tip-icon">03</span><div><div class="vc-tip-title">Keep your distance steady</div><div class="vc-tip-desc">About a handspan from your microphone. Speak comfortably.</div></div></div>
+      <div class="vc-tip-card"><span class="vc-tip-icon">03</span><div><div class="vc-tip-title">Hold your phone comfortably</div><div class="vc-tip-desc">Speak normally at a comfortable distance. Keep the microphone uncovered.</div></div></div>
     </div>
     <div class="vc-field"><label for="vc-device-select">Microphone</label><select class="vc-select" id="vc-device-select"><option value="">Default microphone</option></select></div>
     <div class="vc-capture-actions"><button class="btn btn-primary" id="vc-record-btn" type="button">${ICONS.mic} Record my voice</button><button class="btn btn-secondary" id="vc-upload-btn" type="button">${ICONS.upload} Upload audio</button></div>
@@ -212,7 +212,7 @@ async function runRecording(deviceId) {
     <canvas id="vc-bars" class="vc-waveform-canvas vc-waveform-visible" width="460" height="70" aria-hidden="true"></canvas>
     <div class="vc-recording-progress" role="progressbar" aria-label="Recording duration" aria-valuemin="0" aria-valuemax="10" aria-valuenow="0"><div class="vc-progress-fill" id="vc-capture-fill"></div></div>
     <p class="vc-timer" id="vc-timer">0:00 / 0:10</p>
-    <p class="vc-inline-warning" id="vc-warning" role="status">Keep speaking naturally. Your recording stays unprocessed.</p>
+    <p class="vc-inline-warning" id="vc-warning" role="status">Speak naturally. Quiet recording levels are balanced after capture.</p>
     <div class="vc-footer-row"><button id="vc-cancel-recording" class="btn btn-secondary" type="button">Start over</button><button id="vc-stop-btn" class="btn btn-primary" type="button" disabled>Keep going · 7s left</button></div>
   `);
   const stopButton = qs("#vc-stop-btn");
@@ -223,12 +223,12 @@ async function runRecording(deviceId) {
   let quietSince = null;
   try {
     waveform = startLiveRibbon(recorder.liveStream, qs("#vc-bars"), { color: "#c7f86d", onLevel(level) {
-      if (level < 0.012) {
+      if (level < 0.003) {
         quietSince ??= performance.now();
-        if (performance.now() - quietSince > 3500) warning.textContent = "Very little sound is reaching your microphone. Check mute or move a little closer.";
+        if (performance.now() - quietSince > 3500) warning.textContent = "Very little sound is reaching the microphone. Check microphone access and keep the microphone uncovered.";
       } else {
         quietSince = null;
-        warning.textContent = "Keep speaking naturally. Your recording stays unprocessed.";
+        warning.textContent = level < 0.02 ? "Your voice is coming through softly. The recording volume will be balanced when you finish." : "Your voice is coming through. Keep speaking at your normal distance.";
       }
     } });
   } catch { /* The recorder still works without the optional visualizer. */ }

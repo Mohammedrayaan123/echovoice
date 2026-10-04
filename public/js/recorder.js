@@ -1,5 +1,6 @@
-// Captures unprocessed microphone audio and owns the full stream lifecycle.
+// Captures microphone audio, balances quiet levels, and owns the stream lifecycle.
 import { logAudio } from "./audioLog.js";
+import { balanceRecordingLevel } from "./recordingLevel.js";
 
 export class VoiceRecorder {
   constructor({ minDurationMs = 0, maxDurationMs = 10_000, logType = null } = {}) {
@@ -28,7 +29,7 @@ export class VoiceRecorder {
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
-          autoGainControl: false,
+          autoGainControl: true,
           channelCount: { ideal: 1 },
           ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
         },
@@ -65,8 +66,10 @@ export class VoiceRecorder {
         stream.getTracks().forEach((track) => track.stop());
         if (this.stream === stream) this.stream = null;
         const blob = failed || !chunks.length ? null : new Blob(chunks, { type: recorder.mimeType || chunks[0].type });
-        if (blob && this.logType) logAudio(blob, this.logType);
-        finish(blob);
+        balanceRecordingLevel(blob).then((recording) => {
+          if (recording && this.logType) logAudio(recording, this.logType);
+          finish(recording);
+        });
       };
       recorder.addEventListener("dataavailable", (event) => {
         if (event.data.size > 0) chunks.push(event.data);

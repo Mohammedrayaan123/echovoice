@@ -58,6 +58,8 @@ Voice setup records a clean 7–10 second reference and its exact transcript. Om
 
 In Omni mode, setup stores one original recording and its reviewed transcript privately without creating an ElevenLabs clone or making an ElevenLabs API call. It returns an opaque local voice handle and reference-profile ID. `/api/preview-voice` generates a neutral Omni preview directly from that reference, without a delivery planner or paid reference reading. Preview makes one attempt under the same Omni timeout as ideal generation.
 
+Microphone capture requests automatic gain for comfortable handheld recording. Quiet captured clips receive a bounded constant volume boost before playback, cloning, and comparison, preserving pitch and timing. Healthy recordings and uploaded files are unchanged. Near-silence is not boosted, and volume adjustment cannot recover missing speech or remove background noise. Record a fresh sample to benefit from this adjustment; saved profiles keep their existing audio.
+
 ## Delivery modes
 
 - **Interview:** calm, confident, and conversational.

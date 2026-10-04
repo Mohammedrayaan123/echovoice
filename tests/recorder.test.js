@@ -9,11 +9,11 @@ class FakeRecorder extends EventTarget {
 }
 function fakeStream(){const track={stopped:0,stop(){this.stopped++;}};return {track,getTracks:()=>[track]};}
 function install(getUserMedia){Object.defineProperty(globalThis,'navigator',{configurable:true,value:{mediaDevices:{getUserMedia}}});globalThis.MediaRecorder=FakeRecorder;}
-test('raw capture requests no browser processing; repeated stop shares completion and releases microphone',async()=>{
+test('capture requests microphone gain without noise filtering; repeated stop shares completion and releases microphone',async()=>{
   const stream=fakeStream();let constraints;
   install(async value=>{constraints=value;return stream;});
   const recorder=new VoiceRecorder();await recorder.start();
-  assert.equal(constraints.audio.echoCancellation,false);assert.equal(constraints.audio.noiseSuppression,false);assert.equal(constraints.audio.autoGainControl,false);
+  assert.equal(constraints.audio.echoCancellation,false);assert.equal(constraints.audio.noiseSuppression,false);assert.equal(constraints.audio.autoGainControl,true);
   assert.equal(recorder.mediaRecorder.mimeType,'audio/mp4');assert.equal(recorder.mediaRecorder.timeslice,1000);
   const a=recorder.stop(),b=recorder.stop();assert.equal(a,b);assert.ok((await a).size);assert.equal(stream.track.stopped,1);
 });

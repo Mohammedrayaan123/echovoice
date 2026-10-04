@@ -36,7 +36,7 @@ const app=createApp({apiKey:'local-test-only',supabaseClient:null,saveLocalAudio
 }});
 const script=`
 const marker=document.createElement('div');marker.textContent='LOCAL TEST · synthetic audio · no external calls';marker.style.cssText='position:fixed;top:0;right:0;z-index:9999;font:10px monospace;background:#514514;color:#fff;padding:3px 8px';document.body.append(marker);
-const fakeMicrophone=async()=>{const ctx=new AudioContext();await ctx.resume();const oscillator=ctx.createOscillator();oscillator.frequency.value=180;const gain=ctx.createGain();gain.gain.value=.17;const dest=ctx.createMediaStreamDestination();oscillator.connect(gain);gain.connect(dest);oscillator.start();const track=dest.stream.getAudioTracks()[0];const stop=track.stop.bind(track);track.stop=()=>{stop();oscillator.stop();ctx.close();};return dest.stream;};
+const fakeMicrophone=async()=>{const ctx=new AudioContext();await ctx.resume();const oscillator=ctx.createOscillator();oscillator.frequency.value=180;const gain=ctx.createGain();gain.gain.value=new URLSearchParams(location.search).has('quietMic')?.008:.17;const dest=ctx.createMediaStreamDestination();oscillator.connect(gain);gain.connect(dest);oscillator.start();const track=dest.stream.getAudioTracks()[0];const stop=track.stop.bind(track);track.stop=()=>{stop();oscillator.stop();ctx.close();};return dest.stream;};
 Object.defineProperty(navigator.mediaDevices,'getUserMedia',{value:fakeMicrophone,configurable:true});
 Object.defineProperty(navigator.mediaDevices,'enumerateDevices',{value:async()=>[],configurable:true});
 `;
