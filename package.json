@@ -9,13 +9,16 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
+    "@gradio/client": "^2.4.0",
     "@supabase/supabase-js": "^2.116.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.1",
     "multer": "^2.0.0",
+    "music-metadata": "^11.8.3",
     "pitchy": "^4.1.0"
   }
 }

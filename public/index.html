@@ -3,283 +3,181 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>EchoVoice</title>
+  <meta name="theme-color" content="#08090a" />
+  <meta name="description" content="Your own voice. A little more confidence. Create a voice profile, hear your words, and find your delivery in the EchoVoice rehearsal studio." />
+  <title>EchoVoice — Your rehearsal studio</title>
+  <link rel="icon" href="echovoice-logo-v2.png" type="image/png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;550;600;650;700;750;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- Visible immediately on parse, no JS needed — covers the render-blocking
-       wait during a Render cold start (up to 30-60s) with something on-brand
-       instead of a blank page. app.js hides this once it's actually running;
-       see the fallback timer there too, in case app.js itself fails to start. -->
-  <div id="loading-overlay">
-    <span class="loading-overlay-wordmark">EchoVoice</span>
+  <a class="skip-link" href="#script-section">Skip to the studio</a>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6" /></symbol>
+    <symbol id="icon-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" /></symbol>
+    <symbol id="icon-wave" viewBox="0 0 24 24"><path d="M4 10v4m4-8v12m4-16v20m4-16v12m4-8v4" /></symbol>
+    <symbol id="icon-sliders" viewBox="0 0 24 24"><path d="M4 7h9m4 0h3M4 17h3m4 0h9M13 4v6M7 14v6" /></symbol>
+    <symbol id="icon-play" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7z" /></symbol>
+    <symbol id="icon-headphones" viewBox="0 0 24 24"><path d="M4 14v-2a8 8 0 0 1 16 0v2" /><rect x="3" y="12" width="5" height="9" rx="2" /><rect x="16" y="12" width="5" height="9" rx="2" /></symbol>
+    <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m8 10 4 4 4-4" /></symbol>
+    <symbol id="icon-spark" viewBox="0 0 24 24"><path d="m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4L12 3z" /></symbol>
+  </svg>
+
+  <div id="loading-overlay" aria-label="Opening your studio">
+    <span class="brand-logo loading-logo"><img src="echovoice-logo-v2.png" alt="EchoVoice" width="1983" height="793" /></span>
     <div class="loading-overlay-line"></div>
   </div>
 
-  <nav class="navbar">
-    <div class="navbar-inner">
-      <span class="navbar-wordmark">EchoVoice</span>
-      <button class="navbar-icon-btn" type="button" aria-label="Settings">
-        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6">
-          <circle cx="12" cy="12" r="3"></circle>
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.43.7.7 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
-        </svg>
-      </button>
-    </div>
-  </nav>
-  <main class="app">
-    <p class="subtitle">Hear yourself say it before you say it.</p>
+  <header class="navbar">
+    <nav class="navbar-inner" aria-label="Main navigation">
+      <a class="brand" id="echovoice-brand" href="#" aria-label="EchoVoice studio"><span class="brand-logo"><img src="echovoice-logo-v2.png" alt="EchoVoice" width="1983" height="793" /></span><span class="brand-divider"></span><span class="studio-tag">Studio</span></a>
+      <a class="nav-help" href="#studio-guide">A better first take <svg class="icon" aria-hidden="true"><use href="#icon-arrow" /></svg></a>
+      <span class="nav-status"><span class="status-dot"></span>Your rehearsal space</span>
+    </nav>
+  </header>
 
-    <!-- Step 1: voice setup — voiceCapture.js renders a compact trigger here
-         ("Clone Your Voice" button, or a "voice ready" summary once done) and
-         owns a separate 5-step modal (appended to <body>) for the actual
-         capture + verification wizard. Nothing else here is static. -->
-    <section class="card" id="capture-section">
-      <h2>1. Set Up Your Voice</h2>
-      <div id="capture-container"></div>
-    </section>
-
-    <!-- Step 2: type the script -->
-    <section class="card" id="script-section">
-      <h2>2. Type your script</h2>
-      <div class="script-field">
-        <textarea id="script-input" rows="4" placeholder="Type the sentence or answer you want to hear back in your own voice..."></textarea>
-        <span id="script-char-count" class="char-count">0</span>
+  <main class="app" id="main">
+    <header class="studio-intro">
+      <div class="intro-copy">
+        <p class="eyebrow"><span></span>Meet your more confident self</p>
+        <h1>Your voice.<br /><span>Your moment.</span></h1>
+        <p class="intro-description">Hear the words. Find your rhythm.<br class="mobile-break" /> Walk in sounding like yourself.</p>
       </div>
-
-      <!-- Pitch visualization: words light up in sync with playback, with an arrow
-           showing whether your pitch rose or fell across that word. -->
-      <div id="pitch-viz" class="pitch-viz">
-        <p class="pitch-viz-empty">Generate speech to see your pitch visualization here.</p>
+      <div class="intro-art" aria-hidden="true">
+        <div class="art-orbit orbit-one"></div><div class="art-orbit orbit-two"></div><div class="art-orbit orbit-three"></div>
+        <div class="voice-sculpture"><i style="--h:20px;--i:0"></i><i style="--h:36px;--i:1"></i><i style="--h:60px;--i:2"></i><i style="--h:90px;--i:3"></i><i style="--h:116px;--i:4"></i><i style="--h:82px;--i:5"></i><i style="--h:142px;--i:6"></i><i style="--h:168px;--i:7"></i><i style="--h:132px;--i:8"></i><i style="--h:98px;--i:9"></i><i style="--h:152px;--i:10"></i><i style="--h:110px;--i:11"></i><i style="--h:76px;--i:12"></i><i style="--h:44px;--i:13"></i><i style="--h:24px;--i:14"></i></div>
+        <span class="art-caption">Made from your voice. Shaped by practice.</span>
       </div>
-      <p class="hint pitch-viz-legend">
-        <span class="trend-rising">&uarr; rising</span>
-        &nbsp;&nbsp;
-        <span class="trend-falling">&darr; falling</span>
-        &nbsp;&nbsp;
-        no arrow = flat / not enough voiced signal to tell
-      </p>
-    </section>
+    </header>
 
-    <!-- Step 3: generate + play -->
-    <section class="card" id="generate-section">
-      <h2>3. Hear it back</h2>
+    <nav class="journey" aria-label="Rehearsal steps">
+      <a class="journey-step is-current" href="#capture-section" id="journey-voice"><span class="journey-number">01</span><span>Your voice</span><span class="journey-caption">Make it personal</span></a>
+      <svg class="icon journey-arrow" aria-hidden="true"><use href="#icon-arrow" /></svg>
+      <a class="journey-step" href="#script-section" id="journey-script"><span class="journey-number">02</span><span>Your words</span><span class="journey-caption">Hear the possibility</span></a>
+      <svg class="icon journey-arrow" aria-hidden="true"><use href="#icon-arrow" /></svg>
+      <a class="journey-step" href="#practice-panel" id="journey-practice"><span class="journey-number">03</span><span>Your delivery</span><span class="journey-caption">Find your confidence</span></a>
+    </nav>
 
-      <div class="field">
-        <label for="language-select">Language</label>
-        <select id="language-select">
-          <option value="">Auto-detect from text</option>
-          <option value="en">English</option>
-          <option value="es">Spanish</option>
-          <option value="fr">French</option>
-          <option value="de">German</option>
-          <option value="it">Italian</option>
-          <option value="pt">Portuguese</option>
-          <option value="nl">Dutch</option>
-          <option value="pl">Polish</option>
-          <option value="tr">Turkish</option>
-          <option value="ru">Russian</option>
-          <option value="uk">Ukrainian</option>
-          <option value="ar">Arabic</option>
-          <option value="hi">Hindi</option>
-          <option value="ta">Tamil</option>
-          <option value="ja">Japanese</option>
-          <option value="ko">Korean</option>
-          <option value="zh">Chinese</option>
-          <option value="id">Indonesian</option>
-          <option value="ms">Malay</option>
-          <option value="fil">Filipino</option>
-          <option value="vi">Vietnamese</option>
-          <option value="sv">Swedish</option>
-          <option value="da">Danish</option>
-          <option value="no">Norwegian</option>
-          <option value="fi">Finnish</option>
-          <option value="el">Greek</option>
-          <option value="cs">Czech</option>
-          <option value="sk">Slovak</option>
-          <option value="hu">Hungarian</option>
-          <option value="ro">Romanian</option>
-          <option value="bg">Bulgarian</option>
-          <option value="hr">Croatian</option>
-        </select>
-        <p class="hint">
-          Controls which language is spoken. There's no separate "accent" dial — for a cloned voice, the accent
-          comes from your recorded sample, not a setting. To hear a different accent, record your sample in it.
-        </p>
-      </div>
+    <div class="workspace-heading"><h2>Rehearsal studio</h2><p id="session-state" aria-live="polite"><span class="status-dot"></span>Let’s make it yours</p></div>
 
-      <div class="field">
-        <label for="model-select">Model</label>
-        <select id="model-select">
-          <option value="eleven_multilingual_v2" selected>Multilingual v2 — most accurate to your voice (default)</option>
-          <option value="eleven_flash_v2_5">Flash — fastest, lower clone accuracy</option>
-          <option value="eleven_v3">v3 — most expressive, slower to generate</option>
-        </select>
-        <p class="hint">
-          Multilingual v2 is the default because it clones your voice more accurately than Flash. Language
-          forcing above only takes effect on Flash — on Multilingual v2 / v3 the language is auto-detected
-          from the text regardless of the dropdown. Multilingual v2 / v3 also use ~2x the character quota vs. Flash.
-        </p>
-      </div>
+    <div class="workspace-grid">
+      <aside class="voice-column">
+        <section class="card voice-card" id="capture-section" aria-labelledby="voice-title">
+          <div class="section-overline"><span>01 / Voice profile</span><svg class="icon" aria-hidden="true"><use href="#icon-wave" /></svg></div>
+          <div class="voice-avatar" aria-hidden="true"><div class="avatar-ring"></div><svg class="icon"><use href="#icon-mic" /></svg><span class="avatar-spark"></span></div>
+          <h2 id="voice-title">It starts with you.</h2>
+          <p class="voice-intro">Your tone, your texture, your accent. Give your voice a little room to be heard.</p>
+          <div id="capture-container"></div>
+          <div class="sample-note"><svg class="icon" aria-hidden="true"><use href="#icon-headphones" /></svg><span>A quiet room. Your natural voice.<br />A clear 7–10 second sample.</span></div>
+        </section>
+        <details class="studio-guide" id="studio-guide">
+          <summary><span class="guide-symbol"><svg class="icon" aria-hidden="true"><use href="#icon-spark" /></svg></span><span>A better first take</span><svg class="icon chevron" aria-hidden="true"><use href="#icon-chevron" /></svg></summary>
+          <div class="guide-content"><p>Speak as you would to a friend. Keep the microphone steady, and leave out music or other voices.</p><p>Listen to your voice preview before continuing. A clear, natural sample is the best place to start.</p></div>
+        </details>
+        <p class="sidebar-note">The goal is still you.<br /><span>Just a little more ready.</span></p>
+      </aside>
 
-      <div class="field">
-        <label>Voice settings</label>
-        <div class="slider-row">
-          <span class="slider-label">Stability</span>
-          <input type="range" id="stability-input" min="0" max="1" step="0.05" value="0.5" />
-          <span class="slider-value" id="stability-value">0.50</span>
-        </div>
-        <div class="slider-row">
-          <span class="slider-label">Similarity</span>
-          <input type="range" id="similarity-input" min="0" max="1" step="0.05" value="1" />
-          <span class="slider-value" id="similarity-value">1.00</span>
-        </div>
-        <div class="slider-row">
-          <span class="slider-label">Style</span>
-          <input type="range" id="style-input" min="0" max="1" step="0.05" value="0" />
-          <span class="slider-value" id="style-value">0.00</span>
-        </div>
-        <p class="hint">
-          Stability: lower = more expressive/variable, higher = more monotone/consistent. Similarity: how closely
-          it sticks to your cloned voice — defaulted to max for accuracy. Style: exaggerates the voice's character;
-          defaulted to 0 so it doesn't override your voice's natural sound. (Speaker boost is also on, fixed, no slider.)
-        </p>
-      </div>
-
-      <div class="row">
-        <button id="generate-btn" class="btn btn-primary" disabled>Generate Speech</button>
-        <button id="backup-btn" class="btn btn-secondary">Play Backup Clip</button>
-      </div>
-
-      <!-- Shown while synthesizeSpeech() is in flight — a breathing waveform
-           instead of a spinner or a progress bar (ElevenLabs gives us no real
-           progress to report). -->
-      <div id="generate-loading" class="loading-block" hidden>
-        <canvas id="generate-loading-canvas" class="loading-waveform"></canvas>
-        <p class="loading-label">Generating your ideal delivery&hellip;</p>
-      </div>
-
-      <!-- Shown instead of a raw error for recoverable failures (e.g. an expired
-           voice profile) — a plain-language message plus a way to fix it, so
-           nothing technical is ever what's on screen during a demo. -->
-      <div id="error-recovery" class="error-recovery" hidden>
-        <div class="error-recovery-body">
-          <p id="error-recovery-message"></p>
-          <button id="error-recovery-btn" class="btn btn-secondary">Record Again</button>
-        </div>
-        <button id="error-recovery-dismiss" class="error-recovery-dismiss" type="button" aria-label="Dismiss">&times;</button>
-      </div>
-
-      <div id="playback-card" class="playback-card" hidden>
-        <p class="playback-card-label">Ideal Delivery</p>
-        <canvas id="playback-waveform" class="playback-waveform"></canvas>
-        <div class="playback-controls-row">
-          <button id="playback-play-btn" class="ghost-icon-btn" type="button" aria-label="Play">&#9658;</button>
-          <div class="playback-progress-track">
-            <div id="playback-progress-fill" class="playback-progress-fill"></div>
-          </div>
-          <span id="playback-time" class="playback-time">00:00 / 00:00</span>
-        </div>
-      </div>
-      <audio id="result-playback" hidden></audio>
-    </section>
-
-    <!-- Step 4: the core feature — compare your live delivery against the AI version -->
-    <section class="card comparison-card" id="comparison-section" hidden>
-      <h2 class="subheading-size">4. Now try it yourself</h2>
-      <p class="hint">Read the line back, then hit Compare to see how your pitch stacks up against the AI version.</p>
-
-      <p id="comparison-script-text" class="comparison-script-text"></p>
-
-      <div class="row">
-        <button id="comparison-record-btn" class="record-btn" type="button" aria-label="Record Your Attempt">🎤</button>
-        <span id="comparison-status" class="status"></span>
-      </div>
-      <audio id="comparison-playback" controls hidden></audio>
-
-      <div class="row">
-        <button id="comparison-compare-btn" class="btn btn-primary" disabled>Compare</button>
-      </div>
-
-      <!-- Results: score circle, plain-language feedback, word-highlighted
-           script, then the detailed graphs (collapsed by default). Hidden
-           until a Compare succeeds. -->
-      <div id="comparison-results" class="comparison-results" hidden>
-        <div class="score-circle-wrap">
-          <svg class="score-circle-svg" viewBox="0 0 120 120" width="120" height="120">
-            <circle class="score-circle-track" cx="60" cy="60" r="54"></circle>
-            <circle id="score-circle-ring" class="score-circle-ring" cx="60" cy="60" r="54"></circle>
-          </svg>
-          <div class="score-circle-center">
-            <span id="score-circle-number" class="score-circle-number">0</span>
-          </div>
-          <p id="score-tier-label" class="score-tier-label"></p>
-        </div>
-
-        <div id="feedback-cards" class="feedback-cards"></div>
-
-        <div id="script-highlight-card" class="script-highlight-card" hidden>
-          <p class="script-highlight-label">Your Script — Word-by-Word Match</p>
-          <p id="script-highlight-words" class="script-highlight-words"></p>
-          <div class="script-highlight-legend">
-            <span class="legend-item"><span class="legend-dot" style="background: var(--color-success)"></span>Strong Match</span>
-            <span class="legend-item"><span class="legend-dot" style="background: var(--color-accent)"></span>Good</span>
-            <span class="legend-item"><span class="legend-dot" style="background: var(--color-warning)"></span>Needs Work</span>
-            <span class="legend-item"><span class="legend-dot" style="background: var(--color-error)"></span>Mismatch</span>
-          </div>
-        </div>
-
-        <button id="detail-toggle-btn" class="detail-toggle-btn" type="button" aria-expanded="false">Show detailed pitch analysis &#9660;</button>
-
-        <div id="detail-collapse" class="detail-collapse">
-          <div id="comparison-panels" class="comparison-panels" hidden>
-            <div class="comparison-panel">
-              <p class="comparison-panel-label">Ideal Delivery</p>
-              <canvas id="comparison-canvas-ideal" class="comparison-canvas"></canvas>
+      <div class="script-column">
+        <div class="card composition-card">
+          <section id="script-section" aria-labelledby="script-title">
+            <div class="section-overline"><span>02 / Your words</span><span class="quiet-label">A blank page. A fresh start.</span></div>
+            <div class="section-title-row"><h2 id="script-title">What’s your moment?</h2><svg class="icon title-icon" aria-hidden="true"><use href="#icon-spark" /></svg></div>
+            <p class="section-description">An introduction. A big idea. The words you want to get right.</p>
+            <div class="preset-row" role="group" aria-label="Start with a script">
+              <button class="preset-btn" type="button" data-script-preset="Thank you for the opportunity to be here. I’m excited to share a little about myself, the work I care about, and what I can bring to this team.">The interview <svg class="icon" aria-hidden="true"><use href="#icon-arrow" /></svg></button>
+              <button class="preset-btn" type="button" data-script-preset="Today, I’d like to share an idea I believe in. It starts with a simple question: what could we do differently? Let me walk you through what I have in mind.">The presentation <svg class="icon" aria-hidden="true"><use href="#icon-arrow" /></svg></button>
+              <button class="preset-btn" type="button" data-script-preset="There’s something I’ve been meaning to say. I want to take a moment, find the right words, and share it honestly. Thank you for making time to listen.">The conversation <svg class="icon" aria-hidden="true"><use href="#icon-arrow" /></svg></button>
             </div>
-            <div class="comparison-panel">
-              <p class="comparison-panel-label">Your Attempt</p>
-              <canvas id="comparison-canvas-attempt" class="comparison-canvas"></canvas>
-            </div>
-          </div>
+            <label class="sr-only" for="script-input">Your rehearsal script</label>
+            <div class="script-field"><textarea id="script-input" rows="6" maxlength="3000" placeholder="Start with the words you want to say…" spellcheck="true" aria-describedby="script-help"></textarea><div class="script-meta"><span id="script-duration">Make a little room for your next big moment.</span><span><span id="script-char-count">0</span><span class="char-limit"> / 3,000</span></span></div></div>
+            <p class="sr-only" id="script-help">Write up to 3,000 characters. You can also choose a starting script above.</p>
+            <div class="draft-row"><span id="script-draft-status">Your draft stays on this device</span><span>Ctrl / ⌘ + Enter to hear your words</span></div>
+          </section>
 
-          <div id="comparison-controls" class="comparison-controls" hidden>
-            <div class="row">
-              <button id="play-ideal-btn" class="btn btn-secondary" type="button">Play Ideal</button>
-              <button id="play-yours-btn" class="btn btn-secondary" type="button">Play Yours</button>
-              <button id="play-both-btn" class="btn btn-secondary" type="button">Play Both</button>
-            </div>
-            <div class="row">
-              <button id="skip-back-btn" class="transport-btn transport-btn-skip" type="button" aria-label="Skip back 5 seconds">&laquo;5</button>
-              <button id="play-pause-btn" class="transport-btn" type="button" aria-label="Play or pause">&#9658;</button>
-              <button id="skip-fwd-btn" class="transport-btn transport-btn-skip" type="button" aria-label="Skip forward 5 seconds">5&raquo;</button>
-              <div class="speed-toggle" role="group" aria-label="Playback speed">
-                <button class="speed-btn" data-speed="0.5" type="button">0.5&times;</button>
-                <button class="speed-btn active" data-speed="1" type="button">1&times;</button>
-                <button class="speed-btn" data-speed="1.5" type="button">1.5&times;</button>
+          <section id="generate-section" aria-label="Generate your reference voice">
+            <fieldset class="delivery-mode-fieldset">
+              <legend>Choose your delivery</legend>
+              <p class="hint">Set the feel of the ideal track. EchoVoice will plan the pace and timing.</p>
+              <div id="delivery-mode-options" class="delivery-mode-options" aria-live="polite"><span class="delivery-mode-loading">Loading delivery modes…</span></div>
+            </fieldset>
+            <details class="voice-settings" id="script-settings">
+              <summary><svg class="icon" aria-hidden="true"><use href="#icon-sliders" /></svg><span>Fine-tune your voice</span><span class="settings-default">Natural by default</span><svg class="icon chevron" aria-hidden="true"><use href="#icon-chevron" /></svg></summary>
+              <div class="settings-content">
+                <div class="settings-grid">
+                  <div class="field"><label for="model-select">Voice model</label><select id="model-select"><option value="eleven_multilingual_v2" selected>Multilingual v2 · consistent delivery</option><option value="eleven_v3">v3 · expressive delivery</option><option value="eleven_flash_v2_5">Flash v2.5 · faster preview</option></select></div>
+                  <div class="field"><label for="language-select">Language</label><select id="language-select"><option value="">Follow the script</option><option value="en">English</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="it">Italian</option><option value="pt">Portuguese</option><option value="nl">Dutch</option><option value="pl">Polish</option><option value="tr">Turkish</option><option value="ru">Russian</option><option value="uk">Ukrainian</option><option value="ar">Arabic</option><option value="hi">Hindi</option><option value="ta">Tamil</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="zh">Chinese</option><option value="id">Indonesian</option><option value="ms">Malay</option><option value="fil">Filipino</option><option value="vi">Vietnamese</option><option value="sv">Swedish</option><option value="da">Danish</option><option value="no">Norwegian</option><option value="fi">Finnish</option><option value="el">Greek</option><option value="cs">Czech</option><option value="sk">Slovak</option><option value="hu">Hungarian</option><option value="ro">Romanian</option><option value="bg">Bulgarian</option><option value="hr">Croatian</option></select></div>
+                </div>
+                <p class="hint" id="language-hint">Your accent comes from your recording. This model follows the language of your script.</p>
+                <div class="slider-row"><label class="slider-label" for="stability-input">Stability</label><input type="range" id="stability-input" min="0" max="1" step="0.05" value="0.5" /><output class="slider-value" id="stability-value" for="stability-input">0.50</output></div>
+                <div class="slider-row"><label class="slider-label" for="similarity-input">Similarity</label><input type="range" id="similarity-input" min="0" max="1" step="0.05" value="0.75" /><output class="slider-value" id="similarity-value" for="similarity-input">0.75</output></div>
+                <div class="slider-row"><label class="slider-label" for="style-input">Style</label><input type="range" id="style-input" min="0" max="1" step="0.05" value="0" /><output class="slider-value" id="style-value" for="style-input">0.00</output></div>
+                <p class="hint settings-note" id="model-settings-note">Start with these balanced settings, then listen. Higher similarity can also bring through noise from your original recording.</p>
               </div>
-            </div>
-          </div>
+            </details>
 
-          <p class="hint pitch-viz-legend">
-            <span class="legend-ai">&mdash; ideal delivery</span>
-            &nbsp;&nbsp;
-            <span class="legend-user">&mdash; your attempt</span>
-            &nbsp;&nbsp;
-            <span class="legend-diverge">red band = pitch drifted more than ~2 semitones</span>
-          </p>
+            <div class="generate-action"><p id="generation-hint"><span class="tiny-dot"></span>Set up your voice to hear your words.</p><button id="generate-btn" class="btn btn-primary" disabled><svg class="icon" aria-hidden="true"><use href="#icon-wave" /></svg>Hear my words<svg class="icon" aria-hidden="true"><use href="#icon-arrow" /></svg></button><button id="backup-btn" class="btn btn-secondary" hidden>Use backup clip</button></div>
+            <p class="hint data-note">Your original recording is used to create the ideal track. Recordings and generated clips may be saved for app testing.</p>
+            <button id="regenerate-btn" class="regenerate-btn" type="button" hidden>Create a new version · uses generation allowance</button>
+            <div id="generate-loading" class="loading-block" hidden>
+              <ol class="generation-stages" aria-label="Generation progress"><li id="generation-stage-plan">1 · Plan delivery</li><li id="generation-stage-voice">2 · Create your voice</li></ol>
+              <canvas id="generate-loading-canvas" class="loading-waveform" aria-hidden="true"></canvas>
+              <p id="generate-loading-label" class="loading-label" role="status">Planning your ideal delivery...</p>
+              <p id="generate-loading-detail" class="hint">Measuring a reference reading to guide the pace.</p><span id="generation-elapsed" class="generation-elapsed" aria-live="off">0s elapsed</span>
+            </div>
+            <div id="error-recovery" class="error-recovery" hidden role="alert"><div class="error-recovery-body"><p id="error-recovery-message"></p><button id="error-recovery-btn" class="btn btn-secondary">Set up voice again</button></div><button id="error-recovery-dismiss" class="error-recovery-dismiss" type="button" aria-label="Dismiss">&times;</button></div>
+            <div id="playback-card" class="playback-card" hidden>
+              <div class="playback-heading"><p class="playback-card-label"><span class="status-dot"></span>Your reference</p><span class="quiet-label">Listen. Let it settle in.</span></div>
+              <p id="reference-change-note" class="reference-change-note" hidden>Your script or delivery settings have changed. This track still plays the previous version. Choose “Hear updated words” to create a matching track.</p>
+              <canvas id="playback-waveform" class="playback-waveform" aria-label="Waveform of your generated reference"></canvas>
+              <div class="playback-controls-row"><button id="playback-play-btn" class="ghost-icon-btn" type="button" aria-label="Play reference"><svg class="icon" aria-hidden="true"><use href="#icon-play" /></svg></button><div class="playback-progress-track"><div id="playback-progress-fill" class="playback-progress-fill"></div></div><span id="playback-time" class="playback-time">00:00 / 00:00</span></div>
+              <details class="delivery-map"><summary>Follow the words <svg class="icon chevron" aria-hidden="true"><use href="#icon-chevron" /></svg></summary><div id="pitch-viz" class="pitch-viz"><p class="pitch-viz-empty">Your words will light up as your reference plays.</p></div><p class="hint pitch-viz-legend"><span class="trend-rising">↑ Rising</span><span class="trend-falling">↓ Falling</span><span>No arrow: steady or unvoiced</span></p></details>
+            </div>
+            <audio id="result-playback" hidden></audio>
+          </section>
+        </div>
+
+        <div id="practice-panel" class="practice-panel">
+          <div id="rehearsal-empty" class="rehearsal-empty"><span class="practice-icon"><svg class="icon" aria-hidden="true"><use href="#icon-mic" /></svg></span><div><p class="section-overline">03 / Your delivery</p><h2>Your next take starts here.</h2><p>After you hear your words, make them your own.<br />Record a take and explore your pacing and pitch.</p></div><svg class="icon empty-arrow" aria-hidden="true"><use href="#icon-arrow" /></svg></div>
+
+          <section class="card comparison-card" id="comparison-section" hidden aria-labelledby="comparison-title">
+            <div class="section-overline"><span>03 / Your delivery</span><svg class="icon" aria-hidden="true"><use href="#icon-mic" /></svg></div>
+            <h2 id="comparison-title">Now, make it yours.</h2><p class="section-description">Take a breath. Read your words aloud, then explore how your delivery feels.</p>
+            <p id="comparison-script-text" class="comparison-script-text"></p>
+            <div class="recording-row"><button id="comparison-record-btn" class="record-btn" type="button" aria-label="Record your attempt"><svg class="icon" aria-hidden="true"><use href="#icon-mic" /></svg></button><div class="recording-copy"><span class="recording-label">Your turn</span><span id="comparison-status" class="status" role="status">Press record when you’re ready.</span></div><button id="comparison-compare-btn" class="btn btn-primary" disabled>Compare delivery <svg class="icon" aria-hidden="true"><use href="#icon-arrow" /></svg></button></div>
+            <canvas id="attempt-waveform" aria-hidden="true"></canvas>
+            <audio id="comparison-playback" controls hidden></audio>
+            <div id="comparison-results" class="comparison-results" hidden>
+              <div class="score-circle-wrap"><svg class="score-circle-svg" viewBox="0 0 120 120" width="120" height="120" aria-hidden="true"><circle class="score-circle-track" cx="60" cy="60" r="54"></circle><circle id="score-circle-ring" class="score-circle-ring" cx="60" cy="60" r="54"></circle></svg><div class="score-circle-center"><span id="score-circle-number" class="score-circle-number">0</span></div><p id="score-tier-label" class="score-tier-label"></p><p class="score-context">Pitch match</p></div>
+              <div id="feedback-cards" class="feedback-cards"></div>
+              <div id="script-highlight-card" class="script-highlight-card" hidden><p class="script-highlight-label">Pitch along your script · approximate timing</p><p id="script-highlight-words" class="script-highlight-words"></p><div class="script-highlight-legend"><span class="legend-item"><span class="legend-dot" style="background:var(--color-success)"></span>Close</span><span class="legend-item"><span class="legend-dot" style="background:var(--color-accent)"></span>Similar</span><span class="legend-item"><span class="legend-dot" style="background:var(--color-warning)"></span>Some variation</span><span class="legend-item"><span class="legend-dot" style="background:var(--color-error)"></span>Different</span></div></div>
+              <button id="detail-toggle-btn" class="detail-toggle-btn" type="button" aria-expanded="false" aria-controls="detail-collapse">Explore pitch &amp; timing ↓</button>
+              <div id="detail-collapse" class="detail-collapse"><div id="comparison-panels" class="comparison-panels" hidden><div class="comparison-panel"><p class="comparison-panel-label">Your reference</p><canvas id="comparison-canvas-ideal" class="comparison-canvas" aria-label="Reference pitch contour"></canvas></div><div class="comparison-panel"><p class="comparison-panel-label">Your take</p><canvas id="comparison-canvas-attempt" class="comparison-canvas" aria-label="Recorded pitch contour"></canvas></div></div>
+                <div id="comparison-controls" class="comparison-controls" hidden><div class="row"><button id="play-ideal-btn" class="btn btn-secondary" type="button">Play reference</button><button id="play-yours-btn" class="btn btn-secondary" type="button">Play my take</button><button id="play-both-btn" class="btn btn-secondary" type="button">Play together</button></div><div class="row"><button id="skip-back-btn" class="transport-btn transport-btn-skip" type="button" aria-label="Skip back 5 seconds">−5</button><button id="play-pause-btn" class="transport-btn" type="button" aria-label="Play or pause"><svg class="icon" aria-hidden="true"><use href="#icon-play" /></svg></button><button id="skip-fwd-btn" class="transport-btn transport-btn-skip" type="button" aria-label="Skip forward 5 seconds">+5</button><div class="speed-toggle" role="group" aria-label="Playback speed"><button class="speed-btn" data-speed="0.5" type="button">0.5×</button><button class="speed-btn active" data-speed="1" type="button">1×</button><button class="speed-btn" data-speed="1.5" type="button">1.5×</button></div></div></div><p class="hint pitch-viz-legend"><span class="legend-ai">— Reference</span><span class="legend-user">— Your take</span><span class="legend-diverge">Shaded areas show pitch variation</span></p>
+              </div>
+              <p class="comparison-footnote">This estimates pitch similarity over time, not voice identity or speaking ability. There’s more than one good way to say it.</p>
+            </div>
+            <p id="comparison-message" class="pitch-viz-empty" hidden></p><button id="try-again-btn" class="btn btn-secondary" type="button" hidden>Try another take</button>
+          </section>
         </div>
       </div>
-
-      <p id="comparison-message" class="pitch-viz-empty" hidden></p>
-
-      <button id="try-again-btn" class="btn btn-secondary" type="button" hidden>Try Again</button>
-    </section>
+    </div>
+    <footer class="studio-footer"><span>Made for the moments that matter.</span><span>EchoVoice <span class="footer-dot">·</span> Hear yourself succeed.</span></footer>
   </main>
-
+  <dialog id="token-settings-dialog" class="token-dialog" aria-labelledby="token-settings-title">
+    <form id="token-settings-form" class="token-dialog-card">
+      <button id="token-settings-close" class="token-dialog-close" type="button" aria-label="Close">&times;</button>
+      <p class="token-dialog-kicker">Private server setting</p>
+      <h2 id="token-settings-title">Update voice access</h2>
+      <p class="token-dialog-copy">Replace the Hugging Face token used for future voice generations. The token stays only in server memory and resets when the server restarts.</p>
+      <label class="token-dialog-field" for="token-admin-key"><span>Admin key</span><input id="token-admin-key" name="adminKey" type="password" autocomplete="off" required /></label>
+      <label class="token-dialog-field" for="huggingface-token"><span>New Hugging Face token</span><input id="huggingface-token" name="token" type="password" autocomplete="off" placeholder="hf_..." required /></label>
+      <p id="token-settings-status" class="token-dialog-status" role="status"></p>
+      <div class="token-dialog-actions"><button id="token-settings-cancel" class="btn btn-secondary" type="button">Cancel</button><button id="token-settings-submit" class="btn btn-primary" type="submit">Update token</button></div>
+    </form>
+  </dialog>
+  <noscript><div class="noscript-note">EchoVoice needs JavaScript to record and play your voice. Enable it in your browser to open the studio.</div><style>#loading-overlay{display:none}</style></noscript>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

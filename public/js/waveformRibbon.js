@@ -215,6 +215,10 @@ export async function decodeAudioBufferFromUrl(url) {
  * @returns {() => void} stop function
  */
 export function startBreathingLoader(canvas, { color = "#e4f222" } = {}) {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    drawRibbon(canvas, Array.from({ length: 100 }, (_, i) => Math.sin(i / 99 * Math.PI * 3) * 0.18), { color });
+    return () => {};
+  }
   const PERIOD_S = 2.2;
   const start = performance.now();
   let raf;

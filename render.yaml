@@ -3,7 +3,7 @@ services:
     name: echovoice
     env: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /health
     envVars:
@@ -11,6 +11,22 @@ services:
         value: production
       - key: ELEVENLABS_API_KEY
         sync: false
+      - key: ELEVENLABS_REFERENCE_VOICE_ID
+        sync: false
+      - key: IDEAL_VOICE_PROVIDER
+        value: omni
+      - key: OMNI_TIMEOUT_MS
+        value: 40000
+      - key: OMNI_SPACE_ID
+        value: k2-fsa/OmniVoice
+      - key: HUGGINGFACE_TOKEN
+        sync: false
+      - key: TOKEN_ADMIN_KEY
+        sync: false
+      - key: MAX_SCRIPT_LENGTH
+        value: 3000
+      - key: DEFAULT_DELIVERY_MODE
+        value: interview
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SECRET_KEY

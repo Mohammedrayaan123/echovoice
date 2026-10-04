@@ -1,109 +1,110 @@
-// recorder.js — wraps the browser's mic-recording API (MediaRecorder).
-// Keeps recording concerns out of app.js so app.js only deals with UI wiring.
-
+// Captures unprocessed microphone audio and owns the full stream lifecycle.
 import { logAudio } from "./audioLog.js";
 
 export class VoiceRecorder {
-  /**
-   * @param {object} [options]
-   * @param {number} [options.minDurationMs] - can't be manually stopped before this;
-   *   still auto-stops at maxDurationMs regardless. 0 = no minimum.
-   * @param {number} [options.maxDurationMs] - auto-stops recording at this point.
-   * @param {"recording"|"guided"|"user-attempt"|null} [options.logType] - when set,
-   *   every blob this instance produces is fire-and-forget uploaded to
-   *   /save-audio under this type (see audioLog.js). Omit for recorders whose
-   *   output shouldn't be logged.
-   */
   constructor({ minDurationMs = 0, maxDurationMs = 10_000, logType = null } = {}) {
     this.minDurationMs = minDurationMs;
     this.maxDurationMs = maxDurationMs;
     this.logType = logType;
     this.mediaRecorder = null;
-    this.chunks = [];
     this.stream = null;
     this._startedAt = null;
+    this._generation = 0;
+    this._starting = false;
+    this._completion = null;
   }
 
-  /**
-   * @param {(blob: Blob) => void} [onAutoStop]
-   * @param {{deviceId?: string}} [options] - optionally pin a specific input
-   *   device (from navigator.mediaDevices.enumerateDevices()); omit for the
-   *   browser's default mic.
-   */
   async start(onAutoStop, { deviceId } = {}) {
-    // Browsers default echoCancellation/noiseSuppression/autoGainControl to true,
-    // which processes the signal before we ever see it — subtly altering voice
-    // timbre in ways that can hurt clone accuracy. Disabled explicitly for raw,
-    // unprocessed capture. Tradeoff: recordings pick up more background noise,
-    // so this needs a quiet room.
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-        ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-      },
-    });
-    this.mediaRecorder = new MediaRecorder(this.stream);
-    this.chunks = [];
-    this._startedAt = Date.now();
-
-    this.mediaRecorder.addEventListener("dataavailable", (e) => {
-      if (e.data.size > 0) this.chunks.push(e.data);
-    });
-
-    this.mediaRecorder.start();
-
-    // Safety net so a demo-day slip (forgetting to click stop) can't ruin the sample.
-    this._autoStopTimer = setTimeout(async () => {
-      if (this.mediaRecorder.state === "recording") {
-        const blob = await this.stop();
-        if (onAutoStop) onAutoStop(blob);
+    if (this._starting || this.isRecording) throw new Error("A recording is already in progress.");
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      throw new Error("Microphone recording is not supported in this browser. Upload an audio file instead.");
+    }
+    const generation = ++this._generation;
+    this._starting = true;
+    this._completion = null;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          channelCount: { ideal: 1 },
+          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+        },
+      });
+      // A modal can close while the browser permission prompt is open.
+      if (generation !== this._generation) {
+        stream.getTracks().forEach((track) => track.stop());
+        return false;
       }
-    }, this.maxDurationMs);
+      this.stream = stream;
+      const formats = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"];
+      const mimeType = formats.find((format) => MediaRecorder.isTypeSupported?.(format));
+      const recorder = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 128000 });
+      this.mediaRecorder = recorder;
+      const chunks = [];
+      let failed = false;
+      let settled = false;
+      let autoStopTimer;
+      let finish;
+      this._completion = new Promise((resolve) => { finish = resolve; });
+      const complete = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(autoStopTimer);
+        stream.getTracks().forEach((track) => track.stop());
+        if (this.stream === stream) this.stream = null;
+        const blob = failed || !chunks.length ? null : new Blob(chunks, { type: recorder.mimeType || chunks[0].type });
+        if (blob && this.logType) logAudio(blob, this.logType);
+        finish(blob);
+      };
+      recorder.addEventListener("dataavailable", (event) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      });
+      recorder.addEventListener("stop", complete, { once: true });
+      recorder.addEventListener("error", () => {
+        failed = true;
+        if (recorder.state !== "inactive") recorder.stop();
+        else complete();
+        if (generation === this._generation) onAutoStop?.(null);
+      }, { once: true });
+      recorder.start();
+      this._startedAt = Date.now();
+      autoStopTimer = setTimeout(async () => {
+        const blob = await this.stop();
+        if (generation === this._generation) onAutoStop?.(blob);
+      }, this.maxDurationMs);
+      this._autoStopTimer = autoStopTimer;
+      return true;
+    } catch (error) {
+      stream?.getTracks().forEach((track) => track.stop());
+      if (generation === this._generation) {
+        this.stream = null;
+        this.mediaRecorder = null;
+        this._completion = null;
+      }
+      throw error;
+    } finally {
+      if (generation === this._generation) this._starting = false;
+    }
   }
 
-  // Elapsed recording time in ms — for a live timer/countdown display while recording.
-  get elapsedMs() {
-    return this._startedAt ? Date.now() - this._startedAt : 0;
-  }
-
-  // Whether the minimum duration has been met yet, i.e. whether a manual stop
-  // should be allowed right now. Callers decide what to do with this (e.g.
-  // disable the Stop button) — this class doesn't block stop() itself.
-  get canStopNow() {
-    return this.elapsedMs >= this.minDurationMs;
-  }
-
-  // The live MediaStream, while recording — lets a caller attach its own
-  // AnalyserNode for a waveform display without requesting the mic a second time.
-  get liveStream() {
-    return this.stream;
-  }
+  get elapsedMs() { return this._startedAt === null ? 0 : Date.now() - this._startedAt; }
+  get canStopNow() { return this.elapsedMs >= this.minDurationMs; }
+  get liveStream() { return this.stream; }
+  get isRecording() { return this.mediaRecorder?.state === "recording"; }
 
   stop() {
     clearTimeout(this._autoStopTimer);
-    return new Promise((resolve) => {
-      if (!this.mediaRecorder || this.mediaRecorder.state === "inactive") {
-        resolve(null);
-        return;
-      }
-      this.mediaRecorder.addEventListener("stop", () => {
-        // Use whatever format the browser actually recorded (Chrome: webm, Safari: mp4)
-        // rather than assuming — a mismatched label breaks decoding on the TTS backend.
-        const blob = new Blob(this.chunks, { type: this.mediaRecorder.mimeType });
-        this.stream.getTracks().forEach((track) => track.stop());
-        // Fire-and-forget copy of the raw input to the server, BEFORE whatever
-        // the caller does next (e.g. cloning) — never awaited, never allowed
-        // to affect the recording flow. See audioLog.js.
-        if (this.logType) logAudio(blob, this.logType);
-        resolve(blob);
-      });
-      this.mediaRecorder.stop();
-    });
+    if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") this.mediaRecorder.stop();
+    return this._completion || Promise.resolve(null);
   }
 
-  get isRecording() {
-    return this.mediaRecorder?.state === "recording";
+  // Cancels a pending permission request as well as an active recording.
+  cancel() {
+    ++this._generation;
+    this._starting = false;
+    return this.stop();
   }
 }

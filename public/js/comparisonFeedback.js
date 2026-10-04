@@ -146,6 +146,7 @@ function computeSectionFeedback(divergenceMap, duration) {
   regions.sort((a, b) => matchRates[b] - matchRates[a]);
   const strongest = regions[0];
   const weakest = regions[regions.length - 1];
+  if (matchRates[strongest] - matchRates[weakest] < 0.1) return null;
 
   return {
     strongest: { icon: "💪", text: `Strongest section: your ${strongest}` },
@@ -195,6 +196,7 @@ function colorVarForSemitones(semitones) {
 // word's estimated time maps directly to an index; if that exact instant is
 // silent (null), search a short distance outward for the nearest real data.
 function nearestSemitones(divergenceMap, time) {
+  if (!divergenceMap.length) return null;
   let idx = Math.round(time / GRID_STEP_SECONDS);
   idx = Math.max(0, Math.min(divergenceMap.length - 1, idx));
   if (divergenceMap[idx].semitones != null) return divergenceMap[idx].semitones;
@@ -208,22 +210,23 @@ function nearestSemitones(divergenceMap, time) {
 }
 
 /**
- * Distributes the script's words evenly across the ideal clip's duration
- * (approximate — no per-word timestamps are available on the ElevenLabs
- * Starter plan) and colors each by how well the attempt matched at that
- * moment.
+ * Uses generated word timings when they match the script; otherwise estimates
+ * timing from duration. The attempt remains approximately aligned by time.
  * @param {string} scriptText
  * @param {number} duration
  * @param {Array<{time: number, semitones: number|null}>} divergenceMap
  * @returns {Array<{word: string, colorVar: string|null}>|null} null if there
  *   are too few words for word-level highlighting to be meaningful
  */
-export function mapWordsToColors(scriptText, duration, divergenceMap) {
+export function mapWordsToColors(scriptText, duration, divergenceMap, wordTimings = null) {
   const words = scriptText.trim().split(/\s+/).filter(Boolean);
   if (words.length < WORD_MIN_COUNT) return null;
+  const normalize = word => word.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+  const timed = Array.isArray(wordTimings) && wordTimings.length === words.length && wordTimings.every((w,i) =>
+    Number.isFinite(w.start) && Number.isFinite(w.end) && w.end >= w.start && normalize(w.text) === normalize(words[i]));
 
   return words.map((word, i) => {
-    const time = (i / words.length) * duration;
+    const time = timed ? (wordTimings[i].start + wordTimings[i].end) / 2 : ((i + 0.5) / words.length) * duration;
     return { word, colorVar: colorVarForSemitones(nearestSemitones(divergenceMap, time)) };
   });
 }

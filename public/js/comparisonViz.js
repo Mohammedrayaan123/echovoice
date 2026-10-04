@@ -12,12 +12,13 @@
 // those <audio> elements are owned by app.js and keep working regardless of
 // whether this module can draw anything.
 
-import { extractPitchContour } from "./pitchUtils.js";
+import { extractPitchContour, groupCharactersIntoWords } from "./pitchUtils.js";
 import { getScoreTier, generateFeedbackCards, mapWordsToColors } from "./comparisonFeedback.js";
 
-const GRID_STEP_SECONDS = 0.02; // 20ms alignment grid, per spec
-const VOICED_GAP_TOLERANCE_SECONDS = 0.12; // no raw pitch point within this = silence at that instant
-const NOTICEABLE_SEMITONES = 2; // > this = "diverges" for banding + the match-% score
+import { computeDivergence, GRID_STEP_SECONDS, VOICED_GAP_TOLERANCE_SECONDS } from "./comparisonMath.js";
+export { computeDivergence } from "./comparisonMath.js";
+
+
 const PANEL_HEIGHT_CSS = 160; // px — matches the spec'd canvas height
 const PAD_X_CSS = 4;
 const PAD_Y_CSS = 8;
@@ -47,6 +48,9 @@ const attemptBase = document.createElement("canvas");
 
 let currentXScale = null; // (seconds) => device px, or null when nothing's drawn
 let scoreCountRaf = null;
+let lastDrawing = null;
+let comparisonRequest = 0;
+let resizeObserver;
 
 export function init({
   idealCanvas: ideal,
@@ -81,6 +85,9 @@ export function init({
     scoreRingEl.style.strokeDasharray = `${SCORE_RING_CIRCUMFERENCE}`;
     scoreRingEl.style.strokeDashoffset = `${SCORE_RING_CIRCUMFERENCE}`;
   }
+  resizeObserver?.disconnect();
+  resizeObserver = new ResizeObserver(() => redraw());
+  resizeObserver.observe(idealCanvas);
 }
 
 function cssVar(name) {
@@ -93,77 +100,6 @@ function hexToRgba(hex, alpha) {
   const g = parseInt(h.substring(2, 4), 16);
   const b = parseInt(h.substring(4, 6), 16);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-// --- Step 3: time-alignment + semitone divergence -------------------------
-
-// Two-pointer linear interpolation: points and gridTimes are both time-sorted
-// ascending, so the search index only ever moves forward (O(n+m) total, not
-// O(n*m)). Returns null outside the contour's range or across a gap wider
-// than VOICED_GAP_TOLERANCE_SECONDS (unvoiced/silence — don't fabricate a
-// pitch by interpolating across it).
-function resampleLinear(points, gridTimes) {
-  const out = new Array(gridTimes.length).fill(null);
-  if (points.length === 0) return out;
-
-  let i = 0;
-  for (let g = 0; g < gridTimes.length; g++) {
-    const t = gridTimes[g];
-    while (i < points.length - 1 && points[i + 1].time <= t) i++;
-    const a = points[i];
-    const b = points[Math.min(i + 1, points.length - 1)];
-    if (t < a.time || t > b.time) continue;
-    if (a === b) {
-      out[g] = a.frequency;
-      continue;
-    }
-    if (b.time - a.time > VOICED_GAP_TOLERANCE_SECONDS) continue;
-    const ratio = (t - a.time) / (b.time - a.time);
-    out[g] = a.frequency + (b.frequency - a.frequency) * ratio;
-  }
-  return out;
-}
-
-/**
- * Time-aligns two pitch contours onto a shared 20ms grid and scores how
- * closely the attempt matches the ideal, in semitones (perceptually linear,
- * unlike raw Hz).
- * @param {Array<{time:number, frequency:number}>} idealPoints
- * @param {Array<{time:number, frequency:number}>} attemptPoints
- * @returns {{alignedIdeal: Array<{time:number,pitch:number|null}>, alignedAttempt: Array<{time:number,pitch:number|null}>, divergenceMap: Array<{time:number,semitones:number|null,diverges:boolean|null}>, score: number, duration: number, idealDuration: number, attemptDuration: number}}
- */
-export function computeDivergence(idealPoints, attemptPoints) {
-  const idealDuration = idealPoints.length ? idealPoints[idealPoints.length - 1].time : 0;
-  const attemptDuration = attemptPoints.length ? attemptPoints[attemptPoints.length - 1].time : 0;
-  const duration = Math.max(idealDuration, attemptDuration, GRID_STEP_SECONDS);
-
-  const gridTimes = [];
-  for (let t = 0; t <= duration; t += GRID_STEP_SECONDS) gridTimes.push(t);
-
-  const idealHz = resampleLinear(idealPoints, gridTimes);
-  const attemptHz = resampleLinear(attemptPoints, gridTimes);
-
-  const alignedIdeal = gridTimes.map((time, i) => ({ time, pitch: idealHz[i] }));
-  const alignedAttempt = gridTimes.map((time, i) => ({ time, pitch: attemptHz[i] }));
-
-  // Points where either side is silent/unvoiced don't count toward the score
-  // in either direction — there's nothing to meaningfully compare.
-  let validCount = 0;
-  let withinThreshold = 0;
-  const divergenceMap = gridTimes.map((time, i) => {
-    const ideal = idealHz[i];
-    const attempt = attemptHz[i];
-    if (ideal == null || attempt == null) return { time, semitones: null, diverges: null };
-    const semitones = 12 * Math.log2(attempt / ideal);
-    validCount++;
-    const diverges = Math.abs(semitones) > NOTICEABLE_SEMITONES;
-    if (!diverges) withinThreshold++;
-    return { time, semitones, diverges };
-  });
-
-  const score = validCount > 0 ? Math.round((withinThreshold / validCount) * 100) : 0;
-
-  return { alignedIdeal, alignedAttempt, divergenceMap, score, duration, idealDuration, attemptDuration };
 }
 
 function toDivergenceBands(divergenceMap) {
@@ -289,6 +225,10 @@ function drawBase({ idealPoints, attemptPoints, divergenceMap, duration }) {
   compositeFrame(null);
 }
 
+export function redraw() {
+  if (lastDrawing && idealCanvas?.clientWidth) drawBase(lastDrawing);
+}
+
 function compositeFrame(time) {
   if (!idealCanvas || !attemptCanvas) return;
 
@@ -341,9 +281,13 @@ function animateScore(score) {
   }
 
   cancelAnimationFrame(scoreCountRaf);
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (scoreNumberEl) scoreNumberEl.textContent = String(score);
+    return;
+  }
   const start = performance.now();
   function tick(now) {
-    const t = Math.min(1, (now - start) / SCORE_ANIMATION_MS);
+    const t = Math.max(0, Math.min(1, (now - start) / SCORE_ANIMATION_MS));
     if (scoreNumberEl) scoreNumberEl.textContent = String(Math.round(easeOutCubic(t) * score));
     if (t < 1) scoreCountRaf = requestAnimationFrame(tick);
   }
@@ -362,13 +306,14 @@ function renderScoreTier(score) {
 function renderFeedbackCards(cards) {
   if (!feedbackCardsEl) return;
   feedbackCardsEl.innerHTML = "";
-  for (const { icon, text } of cards) {
+  for (const { text } of cards) {
     const card = document.createElement("div");
     card.className = "feedback-card";
 
     const iconEl = document.createElement("span");
     iconEl.className = "feedback-card-icon";
-    iconEl.textContent = icon;
+    iconEl.textContent = String(feedbackCardsEl.children.length + 1).padStart(2, '0');
+    iconEl.setAttribute('aria-hidden', 'true');
 
     const textEl = document.createElement("span");
     textEl.className = "feedback-card-text";
@@ -381,12 +326,12 @@ function renderFeedbackCards(cards) {
 
 // Word colors are applied via inline styles (one <span> per word), not a
 // generated CSS class per word, per spec.
-function renderScriptHighlight(scriptText, duration, divergenceMap) {
+function renderScriptHighlight(scriptText, duration, divergenceMap, wordTimings) {
   if (!scriptHighlightCardEl || !scriptHighlightWordsEl) return;
   scriptHighlightCardEl.hidden = false;
   scriptHighlightWordsEl.innerHTML = "";
 
-  const words = mapWordsToColors(scriptText, duration, divergenceMap);
+  const words = mapWordsToColors(scriptText, duration, divergenceMap, wordTimings);
   if (!words) {
     // Too few words for per-word coloring to mean anything — plain text instead.
     scriptHighlightWordsEl.textContent = scriptText;
@@ -418,7 +363,7 @@ function resetDetailToggle() {
     detailCollapseEl.classList.remove("detail-collapse-expanded");
   }
   if (detailToggleBtn) {
-    detailToggleBtn.textContent = "Show detailed pitch analysis ▼";
+    detailToggleBtn.textContent = "Explore pitch details +";
     detailToggleBtn.setAttribute("aria-expanded", "false");
   }
 }
@@ -447,8 +392,9 @@ function hideMessage() {
  * @param {{aiUrl: string, userUrl: string, scriptText?: string}} args
  * @returns {Promise<{score: number}|null>} null on failure
  */
-export async function compare({ aiUrl, userUrl, scriptText }) {
+export async function compare({ aiUrl, userUrl, scriptText, alignment }) {
   if (!idealCanvas || !attemptCanvas) return null;
+  const request = ++comparisonRequest;
 
   hideMessage();
   resetDetailToggle();
@@ -457,26 +403,35 @@ export async function compare({ aiUrl, userUrl, scriptText }) {
 
   try {
     const [idealPoints, attemptPoints] = await Promise.all([extractPitchContour(aiUrl), extractPitchContour(userUrl)]);
+    if (request !== comparisonRequest) return null;
 
     if (idealPoints.length === 0 || attemptPoints.length === 0) {
       throw new Error("not enough voiced audio");
     }
 
     const divergence = computeDivergence(idealPoints, attemptPoints);
-    drawBase({ idealPoints, attemptPoints, divergenceMap: divergence.divergenceMap, duration: divergence.duration });
+    if (divergence.score === null) {
+      showMessage('There is too little overlapping speech to give a useful pitch score. Start both takes at a similar pace and record the full script.');
+      return null;
+    }
+    lastDrawing = { idealPoints, attemptPoints, divergenceMap: divergence.divergenceMap, duration: divergence.duration };
+    drawBase(lastDrawing);
 
     if (resultsEl) resultsEl.hidden = false;
     renderScoreTier(divergence.score);
     animateScore(divergence.score);
     renderFeedbackCards(generateFeedbackCards(divergence));
     if (scriptText) {
-      renderScriptHighlight(scriptText, divergence.duration, divergence.divergenceMap);
+      let wordTimings;
+      try { wordTimings = alignment ? groupCharactersIntoWords(alignment) : null; } catch { wordTimings = null; }
+      renderScriptHighlight(scriptText, divergence.idealDuration, divergence.divergenceMap, wordTimings);
     } else {
       hideScriptHighlight();
     }
 
     return { score: divergence.score };
   } catch {
+    if (request !== comparisonRequest) return null;
     showMessage("Couldn't analyze pitch — try recording in a quieter spot.");
     return null;
   }
@@ -484,6 +439,8 @@ export async function compare({ aiUrl, userUrl, scriptText }) {
 
 /** Resets the results section (score, feedback, highlighting, graphs) and message to their pre-comparison empty state. */
 export function reset() {
+  comparisonRequest++;
+  lastDrawing = null;
   currentXScale = null;
   cancelAnimationFrame(scoreCountRaf);
   hideMessage();

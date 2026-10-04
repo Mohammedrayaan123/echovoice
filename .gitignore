@@ -1,4 +1,9 @@
 .env
 node_modules/
 audio-logs/
+.voice-profiles/
+backup-clips/*
+!backup-clips/.gitkeep
+tests/.fixtures/
+voice-pipeline-test/
 .claude/settings.local.json

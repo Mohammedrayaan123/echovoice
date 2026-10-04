@@ -1,1032 +1,471 @@
-// voiceCapture.js — the voice-cloning onboarding modal, styled to match
-// ElevenLabs' own onboarding flow: 5 steps (Upload/Record -> Active Recording
-// -> Review & Metadata -> Verification (optional) -> Completion). Owns its own
-// modal DOM (appended once to document.body) and a small state machine;
-// renders a compact trigger into the container passed to init() for the rest
-// of the page. Calls onVoiceReady(voiceId) once a usable voice exists — from
-// completing the wizard, skipping verification, or pasting an existing
-// ElevenLabs voice_id.
-//
-// Step 4 (Verification) is a LOCAL sanity check only — it never sends audio
-// to ElevenLabs. It checks that the verification recording (a) matches a
-// prompted sentence via SpeechRecognition, and (b) has a similar average
-// pitch to the Step-2/3 sample via Pitchy. Both generous on purpose: a false
-// failure here is worse than a false pass for a demo tool.
-//
-// The audio capture path (getUserMedia constraints, raw blob handling, what
-// gets sent to ElevenLabs) is untouched by this file's UI rebuild — see
-// recorder.js and runCloning() below. The noise-removal checkbox is cosmetic
-// only; ElevenLabs does its own audio processing internally.
-
+// Voice setup: capture a useful reference, check the real signal, then listen.
+// Signal checks never claim to verify identity or guarantee a voice match.
 import { VoiceRecorder } from "./recorder.js";
-import { createVoiceProfile, synthesizeSpeech } from "./tts.js";
-import { extractPitchContour } from "./pitchUtils.js";
-import { pickSentence, wordOverlapRatio, transcribeLive, isSpeechRecognitionSupported } from "./speechMatch.js";
+import { logAudio } from "./audioLog.js";
+import { createVoiceProfile, getCurrentVoiceProfileId, previewVoice } from "./tts.js";
 import { friendlyErrorMessage } from "./errorMessages.js";
-import { startLiveRibbon, sampleAudioBufferPeaks, decodeAudioBufferFromUrl, drawRibbon } from "./waveformRibbon.js";
+import { startLiveRibbon, sampleAudioBufferPeaks, drawRibbon } from "./waveformRibbon.js";
+import { analyzeAudioBuffer, MIN_SAMPLE_SECONDS, MAX_SAMPLE_SECONDS } from "./audioQuality.js";
 
-const TOTAL_STEPS = 5;
-const STAGE1_MIN_MS = 10_000;
-const STAGE1_MAX_MS = 30_000;
-const VERIFY_MAX_MS = 15_000;
-const MAX_VERIFY_ATTEMPTS = 3;
-const TEXT_MATCH_THRESHOLD = 0.7; // 70%+ word overlap counts as a match
-const PITCH_MAX_RELATIVE_DIFF = 0.4; // verify F0 within 40% of the main sample's F0
+const STORAGE_KEY = "echovoice.voiceId";
+const NAME_KEY = "echovoice.voiceName";
+const PROFILE_KEY = "echovoice.voiceProfileId";
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
-const QUIET_LEVEL_THRESHOLD = 0.02; // rough 0-1 level below which we call it "too quiet"
-const QUIET_WARNING_MS = 3000;
-const RING_RADIUS = 24;
-const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-// How far from a recorder's own max duration the timer turns --color-error.
-// Proportional to each recorder's cap rather than a fixed "75s of a 90s cap"
-// (the spec's example number) — this app's two recorders cap at 30s and 15s.
-const TIMER_WARNING_WINDOW_MS = 5000;
-
-const STORAGE_KEY_VOICE_ID = "echovoice.voiceId";
-
-const LANGUAGES = [
-  { code: "en-US", label: "English" },
-  { code: "ar-SA", label: "Arabic" },
-  { code: "es-ES", label: "Spanish" },
-  { code: "fr-FR", label: "French" },
-  { code: "de-DE", label: "German" },
-  { code: "hi-IN", label: "Hindi" },
-  { code: "pt-BR", label: "Portuguese" },
-  { code: "ja-JP", label: "Japanese" },
-  { code: "zh-CN", label: "Chinese" },
-  { code: "ru-RU", label: "Russian" },
+const SAMPLE_TEXT = "Today I am speaking in my everyday voice at a comfortable pace, so EchoVoice can learn how I naturally sound.";
+const READING_PROMPT = [
+  SAMPLE_TEXT
 ];
-
-const SAMPLE_PARAGRAPH =
-  "This is a quick preview of your cloned voice. Once you're happy with how it sounds, you can use it to rehearse anything you want to say.";
-
-const FAIL_MESSAGES = {
-  text: "Voice verification attempt failed. Spoken text doesn't match the presented text.",
-  voice: "Voice verification attempt failed. Your recording doesn't match the voice from your uploaded samples.",
+const ICONS = {
+  mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg>',
+  upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></svg>'
 };
 
-let triggerContainer = null;
-let onVoiceReadyCallback = null;
-let modalOverlay = null;
-let modalBody = null;
-
-const mainRecorder = new VoiceRecorder({ minDurationMs: STAGE1_MIN_MS, maxDurationMs: STAGE1_MAX_MS, logType: "recording" });
-const verifyRecorder = new VoiceRecorder({ minDurationMs: 0, maxDurationMs: VERIFY_MAX_MS, logType: "guided" });
-
+let triggerContainer;
+let onVoiceReadyCallback;
+let overlay;
+let body;
+let previousFocus;
+let previousOverflow = "";
+let epoch = 0;
+let timer;
+let waveform;
+let finishCapture;
+const recorder = new VoiceRecorder({ minDurationMs: MIN_SAMPLE_SECONDS * 1000, maxDurationMs: MAX_SAMPLE_SECONDS * 1000 });
 const state = {
-  modalOpen: false,
-  step: 1,
-  audioBlob: null,
-  audioUrl: null,
-  audioSource: "record", // "record" | "upload"
-  fileName: null,
-  removeNoise: false, // cosmetic only — never applied to the audio
-  voiceName: "My Voice",
-  language: "en-US",
-  legalConfirmed: false,
-  voiceId: null,
-  attempt: 0,
-  currentSentence: null,
-  verifyPassed: null,
-  failureReason: null,
-  exhausted: false,
-  error: null,
+  modalOpen: false, step: 1, voiceId: null, voiceProfileId: null, voiceName: "My voice", candidateId: null, candidateProfileId: null,
+  sample: null, sampleUrl: null, sampleName: "", quality: null, peaks: [],
+  transcript: "", consent: false, busy: false, previewBusy: false, previewUrl: null, previewText: SAMPLE_TEXT, error: ""
 };
 
-// Tracked so closeModal()/navigating away mid-recording can always clean up,
-// regardless of which step/phase is currently active.
-let activeIntervalHandle = null;
-let activeWaveformStop = null;
-let activeVerifyCancel = null;
-let activeAudioPreviewStop = null;
+const qs = (selector) => body?.querySelector(selector);
+const html = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+const clock = (seconds) => `${Math.floor(Math.max(0, seconds) / 60)}:${String(Math.floor(Math.max(0, seconds) % 60)).padStart(2, "0")}`;
+function storageGet(key) { try { return localStorage.getItem(key); } catch { return null; } }
+function storageSet(key, value) { try { value ? localStorage.setItem(key, value) : localStorage.removeItem(key); } catch { /* Storage is optional. */ } }
+function isCurrent(token) { return state.modalOpen && token === epoch; }
 
-// ---------- tiny utilities ----------
-
-function qs(sel) {
-  return modalBody.querySelector(sel);
+function stopPlayback() { body?.querySelectorAll("audio").forEach((audio) => audio.pause()); }
+function cleanupCapture() {
+  clearInterval(timer);
+  timer = null;
+  waveform?.stopImmediately();
+  waveform = null;
+  const finish = finishCapture;
+  finishCapture = null;
+  recorder.cancel().then((blob) => finish?.(blob)).catch(() => finish?.(null));
 }
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function discardSample() {
+  if (state.sampleUrl) URL.revokeObjectURL(state.sampleUrl);
+  if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
+  Object.assign(state, { sample: null, sampleUrl: null, sampleName: "", quality: null, peaks: [], transcript: "", previewUrl: null, consent: false, error: "" });
 }
-
-function formatTime(ms) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(totalSeconds / 60);
-  const s = totalSeconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-function updateTimerLabel(timerEl, elapsedMs, maxMs) {
-  timerEl.textContent = `${formatTime(elapsedMs)} / ${formatTime(maxMs)}`;
-  timerEl.classList.toggle("vc-timer-warning", maxMs - elapsedMs <= TIMER_WARNING_WINDOW_MS);
-}
-
-function escapeHtml(str) {
-  const div = document.createElement("div");
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-function persistVoiceId(voiceId) {
-  try {
-    localStorage.setItem(STORAGE_KEY_VOICE_ID, voiceId);
-  } catch {
-    // Best-effort.
-  }
-}
-
-function clearPersistedVoiceId() {
-  try {
-    localStorage.removeItem(STORAGE_KEY_VOICE_ID);
-  } catch {
-    // Best-effort.
-  }
-}
-
-function readPersistedVoiceId() {
-  try {
-    return localStorage.getItem(STORAGE_KEY_VOICE_ID) || "";
-  } catch {
-    return "";
-  }
-}
-
-// ---------- audio helpers ----------
-
-function average(nums) {
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
-
-async function pitchProfileOf(urlOrBlob) {
-  const url = urlOrBlob instanceof Blob ? URL.createObjectURL(urlOrBlob) : urlOrBlob;
-  try {
-    const points = await extractPitchContour(url);
-    if (points.length === 0) return null;
-    return average(points.map((p) => p.frequency));
-  } finally {
-    if (urlOrBlob instanceof Blob) URL.revokeObjectURL(url);
-  }
-}
-
-// Generous on purpose — false failures are worse than false passes here.
-async function checkVoiceSimilarity(mainUrl, verifyBlob) {
-  const [mainF0, verifyF0] = await Promise.all([pitchProfileOf(mainUrl), pitchProfileOf(verifyBlob)]);
-  if (mainF0 == null || verifyF0 == null) return true; // can't measure — don't fail them for that
-  const relativeDiff = Math.abs(verifyF0 - mainF0) / mainF0;
-  return relativeDiff <= PITCH_MAX_RELATIVE_DIFF;
-}
-
-// Live "voice ribbon" (time-domain waveform, not frequency bars) — see
-// waveformRibbon.js. Handles the canvas's own entrance fade-in (opacity
-// 0->1) and, on stop, its exit fade-out timed to match the amplitude decay
-// startLiveRibbon() already runs internally. Also feeds onLevel(0-1) so
-// callers can do "too quiet for too long" detection off the same analyser
-// instead of standing up a second one.
-function startWaveform(stream, canvas, onLevel) {
-  canvas.classList.add("vc-waveform-visible");
-  const ribbon = startLiveRibbon(stream, canvas, { color: "#d0d6e0", onLevel }); // --color-mist
-
-  return () => {
-    canvas.classList.remove("vc-waveform-visible");
-    ribbon.stop();
-  };
-}
-
-// The waveform is cosmetic — a failure here (e.g. an unusual stream state)
-// must never abort the actual recording/verification.
-function safeStartWaveform(stream, canvas, onLevel) {
-  try {
-    return startWaveform(stream, canvas, onLevel);
-  } catch {
-    return () => {};
-  }
-}
-
-// Draws a one-time frozen waveform thumbnail for the Step 3 review card, from
-// the already-recorded/uploaded audio. Cosmetic and best-effort — a decode
-// failure (e.g. an unusual upload container) just leaves the canvas blank.
-async function drawThumbnailWaveform(url, canvas) {
-  try {
-    const buffer = await decodeAudioBufferFromUrl(url);
-    const peaks = sampleAudioBufferPeaks(buffer, 100);
-    drawRibbon(canvas, peaks, { color: "#d0d6e0" }); // --color-mist
-  } catch {
-    // Cosmetic only — the play/pause + duration UI still works without it.
-  }
-}
-
-// Shares one warning line between two purposes: "too quiet for 3+ seconds"
-// (from live level data) and a transient "you can't stop yet" message (which
-// would otherwise get overwritten by the very next animation frame's quiet
-// check) — showOverride() blocks the quiet-check from stomping on it briefly.
-function createWarningController(el) {
-  let quietSince = null;
-  let overrideUntil = 0;
-
-  return {
-    onLevel(level) {
-      if (!el || Date.now() < overrideUntil) return;
-      const now = performance.now();
-      if (level < QUIET_LEVEL_THRESHOLD) {
-        if (quietSince == null) quietSince = now;
-        if (now - quietSince >= QUIET_WARNING_MS) {
-          el.textContent = "It's quite quiet — check your mic isn't muted or move closer.";
-        }
-      } else {
-        quietSince = null;
-        el.textContent = "";
-      }
-    },
-    showOverride(text, durationMs = 2500) {
-      if (!el) return;
-      el.textContent = text;
-      overrideUntil = Date.now() + durationMs;
-    },
-  };
-}
-
-// Drives the circular progress ring around the review-step play button.
-function setupPlayPauseWithRing(url, btn, ringFg, durationLabel) {
-  const audio = new Audio(url);
-  ringFg.style.strokeDasharray = `${RING_CIRCUMFERENCE}`;
-  ringFg.style.strokeDashoffset = `${RING_CIRCUMFERENCE}`;
-
-  audio.addEventListener("loadedmetadata", () => {
-    if (Number.isFinite(audio.duration)) durationLabel.textContent = formatTime(audio.duration * 1000);
-  });
-  audio.addEventListener("timeupdate", () => {
-    if (!Number.isFinite(audio.duration) || audio.duration === 0) return;
-    const progress = audio.currentTime / audio.duration;
-    ringFg.style.strokeDashoffset = `${RING_CIRCUMFERENCE * (1 - progress)}`;
-  });
-  audio.addEventListener("ended", () => {
-    btn.textContent = "▶";
-    ringFg.style.strokeDashoffset = `${RING_CIRCUMFERENCE}`;
-  });
-  btn.addEventListener("click", () => {
-    if (audio.paused) {
-      // An unusual upload (e.g. a video container this browser won't play as
-      // audio) can make play() reject — catch it so the button doesn't get
-      // stuck showing "pause" for audio that never actually started.
-      audio.play().catch(() => {
-        btn.textContent = "▶";
-      });
-      btn.textContent = "⏸";
-    } else {
-      audio.pause();
-      btn.textContent = "▶";
-    }
-  });
-
-  return () => audio.pause();
-}
-
-// ---------- modal chrome (created once, not re-rendered per step) ----------
-
-function createModalDom() {
-  modalOverlay = document.createElement("div");
-  modalOverlay.className = "vc-overlay";
-  modalOverlay.hidden = true;
-  modalOverlay.innerHTML = `
-    <div class="vc-modal" role="dialog" aria-modal="true" aria-label="Clone your voice">
-      <button class="vc-close-btn" id="vc-close-btn" aria-label="Close" type="button">&times;</button>
-      <div id="vc-modal-body"></div>
-    </div>
-  `;
-  document.body.appendChild(modalOverlay);
-  modalBody = modalOverlay.querySelector("#vc-modal-body");
-
-  modalOverlay.querySelector("#vc-close-btn").addEventListener("click", closeModal);
-  modalOverlay.addEventListener("click", (e) => {
-    if (e.target === modalOverlay) closeModal();
-  });
-}
-
-function progressHtml() {
-  let segs = "";
-  for (let i = 1; i <= TOTAL_STEPS; i++) {
-    const cls = i < state.step ? "vc-done" : i === state.step ? "vc-current" : "";
-    segs += `<div class="vc-progress-seg ${cls}"></div>`;
-  }
-  return `<div class="vc-progress">${segs}</div><p class="vc-progress-label">Step ${state.step} of ${TOTAL_STEPS}</p>`;
-}
-
-function setStepHtml(bodyHtml) {
-  modalBody.innerHTML = progressHtml() + `<div class="vc-step">${bodyHtml}</div>`;
-}
-
-function stopAnyActiveCapture() {
-  clearInterval(activeIntervalHandle);
-  activeIntervalHandle = null;
-  if (activeWaveformStop) {
-    activeWaveformStop();
-    activeWaveformStop = null;
-  }
-  if (activeAudioPreviewStop) {
-    activeAudioPreviewStop();
-    activeAudioPreviewStop = null;
-  }
-  if (activeVerifyCancel) {
-    activeVerifyCancel();
-    activeVerifyCancel = null;
-  } else {
-    if (mainRecorder.isRecording) mainRecorder.stop();
-    if (verifyRecorder.isRecording) verifyRecorder.stop();
-  }
-}
-
-export function openModal() {
-  stopAnyActiveCapture();
-  if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
+function resetCapture() {
+  ++epoch;
+  cleanupCapture();
+  stopPlayback();
+  discardSample();
+  state.candidateId = null;
+  state.candidateProfileId = null;
   state.step = 1;
-  state.audioBlob = null;
-  state.audioUrl = null;
-  state.fileName = null;
-  state.voiceName = "My Voice";
-  state.language = "en-US";
-  state.removeNoise = false;
-  state.legalConfirmed = false;
-  state.attempt = 0;
-  state.verifyPassed = null;
-  state.error = null;
-  state.modalOpen = true;
-
-  modalOverlay.hidden = false;
-  // setTimeout, not requestAnimationFrame — this only needs "next tick, after
-  // the browser has registered hidden=false" for the CSS transition to catch,
-  // not frame-syncing, and rAF can be throttled/suspended in ways a plain
-  // timer isn't (e.g. a backgrounded tab), which would silently skip the fade-in.
-  setTimeout(() => modalOverlay.classList.add("vc-open"), 0);
-  renderStep1();
-}
-
-function closeModal() {
-  stopAnyActiveCapture();
-  if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
-  state.modalOpen = false;
-  state.audioBlob = null;
-  state.audioUrl = null;
-  modalOverlay.classList.remove("vc-open");
-  setTimeout(() => {
-    if (!state.modalOpen) modalOverlay.hidden = true;
-  }, 220);
-}
-
-// ---------- Step 1: Upload / Record selection ----------
-
-function renderStep1() {
-  state.step = 1;
-  setStepHtml(`
-    <h2 class="vc-title vc-centered">Instant Voice Clone</h2>
-    <div class="vc-dropzone" id="vc-dropzone" tabindex="0" role="button" aria-label="Upload audio or video">
-      <span class="vc-dropzone-icon">☁️</span>
-      <p class="vc-dropzone-text">Drag &amp; drop audio or video files up to 10MB each</p>
-      <div class="vc-divider"><span>or</span></div>
-      <div class="vc-record-trigger-wrap">
-        <button type="button" id="vc-record-btn" class="vc-record-trigger" aria-label="Record audio">
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"></path>
-            <path d="M19 11a1 1 0 1 0-2 0 5 5 0 0 1-10 0 1 1 0 1 0-2 0 7 7 0 0 0 6 6.92V21a1 1 0 1 0 2 0v-3.08A7 7 0 0 0 19 11z"></path>
-          </svg>
-        </button>
-        <p class="vc-record-trigger-label">Record audio</p>
-      </div>
-      <div class="vc-device-dropdown" id="vc-device-dropdown" hidden></div>
-    </div>
-    <input type="file" id="vc-file-input" accept="audio/*,video/*" hidden />
-    <div class="vc-tip-cards">
-      <div class="vc-tip-card">
-        <span class="vc-tip-icon">🔇</span>
-        <div><div class="vc-tip-title">Avoid noisy environments</div><div class="vc-tip-desc">Background sounds interfere with recording quality</div></div>
-      </div>
-      <div class="vc-tip-card">
-        <span class="vc-tip-icon">🎙️</span>
-        <div><div class="vc-tip-title">Check microphone quality</div><div class="vc-tip-desc">Try external units or headphone mics for better capture</div></div>
-      </div>
-      <div class="vc-tip-card">
-        <span class="vc-tip-icon">🔄</span>
-        <div><div class="vc-tip-title">Use consistent equipment</div><div class="vc-tip-desc">Don't change recording equipment between samples</div></div>
-      </div>
-    </div>
-    <p class="status">${state.error ? escapeHtml(state.error) : ""}</p>
-  `);
-
-  const dropzone = qs("#vc-dropzone");
-  const fileInput = qs("#vc-file-input");
-  const recordBtn = qs("#vc-record-btn");
-  const recordTriggerWrap = qs(".vc-record-trigger-wrap");
-  const deviceDropdown = qs("#vc-device-dropdown");
-
-  dropzone.addEventListener("click", (e) => {
-    if (recordTriggerWrap.contains(e.target) || deviceDropdown.contains(e.target)) return;
-    fileInput.click();
-  });
-  dropzone.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    dropzone.classList.add("vc-drag-over");
-  });
-  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("vc-drag-over"));
-  dropzone.addEventListener("drop", (e) => {
-    e.preventDefault();
-    dropzone.classList.remove("vc-drag-over");
-    const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  });
-  fileInput.addEventListener("change", () => {
-    const file = fileInput.files[0];
-    if (file) handleFile(file);
-  });
-
-  recordBtn.addEventListener("click", toggleDeviceDropdown);
-}
-
-async function toggleDeviceDropdown(e) {
-  e.stopPropagation();
-  const dropdown = qs("#vc-device-dropdown");
-  if (!dropdown) return;
-  if (!dropdown.hidden) {
-    dropdown.hidden = true;
-    return;
-  }
-  dropdown.hidden = false;
-  dropdown.innerHTML = `<div class="vc-device-item" data-device-id="">Default microphone</div>`;
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const mics = devices.filter((d) => d.kind === "audioinput");
-    mics.forEach((d, i) => {
-      const item = document.createElement("div");
-      item.className = "vc-device-item";
-      item.dataset.deviceId = d.deviceId;
-      item.textContent = d.label || `Microphone ${i + 1}`;
-      dropdown.appendChild(item);
-    });
-  } catch {
-    // enumerateDevices unsupported/blocked — the default-mic option above still works.
-  }
-  if (!qs("#vc-device-dropdown")) return; // Step 1 moved on while this was pending
-  dropdown.querySelectorAll(".vc-device-item").forEach((item) => {
-    item.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      dropdown.hidden = true;
-      runMainRecording(item.dataset.deviceId || undefined);
-    });
-  });
-}
-
-function handleFile(file) {
-  // The file input's accept="audio/*,video/*" only filters the OS file picker
-  // — a drag-and-drop is never filtered by it, so an arbitrary file type can
-  // land here and silently fail to play/decode later without this check.
-  if (!file.type.startsWith("audio/") && !file.type.startsWith("video/")) {
-    state.error = "Please choose an audio or video file.";
-    renderStep1();
-    return;
-  }
-  if (file.size > MAX_UPLOAD_BYTES) {
-    state.error = "That file is larger than 10MB — please choose a smaller file.";
-    renderStep1();
-    return;
-  }
-  state.audioBlob = file;
-  state.audioUrl = URL.createObjectURL(file);
-  state.audioSource = "upload";
-  state.fileName = file.name;
-  state.error = null;
-  renderStep3();
-}
-
-// ---------- Step 2: Active recording ----------
-
-// renderShell(3) renders the countdown screen ONCE — calling setStepHtml (and
-// so replacing the whole modal body + retriggering its entrance animation) on
-// every tick made the entire title+number visibly flicker/flash every second.
-// Ticking down just updates the #vc-countdown-number element's text in place.
-async function runCountdownInto(renderShell) {
-  renderShell(3);
-  for (let n = 3; n >= 1; n--) {
-    const numberEl = qs("#vc-countdown-number");
-    if (numberEl) {
-      numberEl.textContent = n;
-      // Changing textContent alone doesn't restart a CSS animation already
-      // running on the element — force it to replay from the start each tick.
-      numberEl.style.animation = "none";
-      void numberEl.offsetWidth;
-      numberEl.style.animation = "";
-    }
-    await sleep(1000);
-    if (!state.modalOpen) return false;
-  }
-  return true;
-}
-
-async function runMainRecording(deviceId) {
-  state.step = 2;
-  state.error = null;
-
-  const proceeded = await runCountdownInto((n) => {
-    setStepHtml(`
-      <p class="vc-countdown-label">Get ready to speak...</p>
-      <p class="vc-countdown-number" id="vc-countdown-number">${n}</p>
-    `);
-  });
-  if (!proceeded) return;
-
-  setStepHtml(`
-    <canvas id="vc-bars" class="vc-waveform-canvas" width="460" height="90"></canvas>
-    <p class="vc-timer" id="vc-timer">00:00 / ${formatTime(STAGE1_MAX_MS)}</p>
-    <p class="vc-inline-warning" id="vc-warning"></p>
-    <button id="vc-stop-btn" class="vc-stop-btn" type="button" aria-label="Stop recording">&#9632;</button>
-  `);
-  const timerEl = qs("#vc-timer");
-  const warning = createWarningController(qs("#vc-warning"));
-  const stopBtn = qs("#vc-stop-btn");
-
-  let resolveBlob;
-  const blobPromise = new Promise((resolve) => {
-    resolveBlob = resolve;
-  });
-
-  try {
-    await mainRecorder.start((blob) => resolveBlob(blob), { deviceId });
-  } catch (err) {
-    state.error = `Couldn't access microphone: ${err.message}`;
-    renderStep1();
-    return;
-  }
-
-  activeWaveformStop = safeStartWaveform(mainRecorder.liveStream, qs("#vc-bars"), warning.onLevel);
-  activeIntervalHandle = setInterval(() => {
-    if (!qs("#vc-timer")) return;
-    updateTimerLabel(timerEl, mainRecorder.elapsedMs, STAGE1_MAX_MS);
-  }, 200);
-
-  stopBtn.addEventListener("click", async () => {
-    if (!mainRecorder.canStopNow) {
-      warning.showOverride("Keep going — we need at least 10 seconds for a good clone.");
-      return;
-    }
-    stopBtn.disabled = true;
-    resolveBlob(await mainRecorder.stop());
-  });
-
-  const blob = await blobPromise;
-  clearInterval(activeIntervalHandle);
-  activeIntervalHandle = null;
-  if (activeWaveformStop) {
-    activeWaveformStop();
-    activeWaveformStop = null;
-  }
-  if (!state.modalOpen) return;
-
-  state.audioBlob = blob;
-  state.audioUrl = URL.createObjectURL(blob);
-  state.audioSource = "record";
-  state.fileName = "Recording 1";
-  renderStep3();
-}
-
-// ---------- Step 3: Review & Metadata ----------
-
-function renderStep3() {
-  state.step = 3;
-  setStepHtml(`
-    <h2 class="vc-title">Review Your Recording</h2>
-    <div class="vc-file-card">
-      <div class="vc-file-info">
-        <div class="vc-file-name">${escapeHtml(state.fileName || "Recording 1")}</div>
-        <canvas id="vc-thumb-waveform" class="vc-thumb-waveform" width="200" height="48"></canvas>
-        <div class="vc-file-duration" id="vc-duration">00:00</div>
-      </div>
-      <div class="vc-play-ring-wrap">
-        <svg class="vc-play-ring" viewBox="0 0 56 56">
-          <circle class="vc-play-ring-bg" cx="28" cy="28" r="24"></circle>
-          <circle class="vc-play-ring-fg" id="vc-ring-fg" cx="28" cy="28" r="24"></circle>
-        </svg>
-        <button id="vc-play-btn" class="vc-play-btn" type="button" aria-label="Play">&#9654;</button>
-      </div>
-      <button id="vc-delete-btn" class="vc-delete-btn" type="button" title="Delete and re-record">&#128465;</button>
-    </div>
-
-    <label class="vc-checkbox-label">
-      <input type="checkbox" id="vc-noise-checkbox" ${state.removeNoise ? "checked" : ""} />
-      <span class="vc-checkbox-box"></span>
-      Remove background noise from audio recordings
-    </label>
-
-    <div class="vc-field-floating">
-      <input type="text" id="vc-name-input" placeholder=" " autocomplete="off" />
-      <label for="vc-name-input">Name</label>
-    </div>
-
-    <div class="vc-field">
-      <label for="vc-language-select">Language</label>
-      <select id="vc-language-select" class="vc-select">
-        ${LANGUAGES.map((l) => `<option value="${l.code}" ${l.code === state.language ? "selected" : ""}>${l.label}</option>`).join("")}
-      </select>
-    </div>
-
-    <label class="vc-checkbox-label">
-      <input type="checkbox" id="vc-legal-checkbox" ${state.legalConfirmed ? "checked" : ""} />
-      <span class="vc-checkbox-box"></span>
-      I confirm that I have all necessary rights and consents to upload and clone this voice
-    </label>
-
-    <p class="status">${state.error ? escapeHtml(state.error) : ""}</p>
-    <div class="vc-footer-row">
-      <span></span>
-      <button id="vc-save-btn" class="btn btn-primary" type="button" ${state.legalConfirmed ? "" : "disabled"}>Save voice</button>
-    </div>
-  `);
-
-  activeAudioPreviewStop = setupPlayPauseWithRing(state.audioUrl, qs("#vc-play-btn"), qs("#vc-ring-fg"), qs("#vc-duration"));
-  drawThumbnailWaveform(state.audioUrl, qs("#vc-thumb-waveform"));
-
-  const goBackOrReRecord = () => {
-    if (activeAudioPreviewStop) {
-      activeAudioPreviewStop();
-      activeAudioPreviewStop = null;
-    }
-    if (state.audioUrl) URL.revokeObjectURL(state.audioUrl);
-    state.audioBlob = null;
-    state.audioUrl = null;
-    // An uploaded file can't be "re-recorded" — send that case back to Step 1
-    // to choose a method again; a real recording goes straight back into Step 2.
-    if (state.audioSource === "upload") renderStep1();
-    else runMainRecording();
-  };
-  qs("#vc-delete-btn").addEventListener("click", goBackOrReRecord);
-
-  qs("#vc-noise-checkbox").addEventListener("change", (e) => {
-    state.removeNoise = e.target.checked; // cosmetic only — see runCloning()
-  });
-  qs("#vc-language-select").addEventListener("change", (e) => {
-    state.language = e.target.value;
-  });
-
-  const nameInput = qs("#vc-name-input");
-  const saveBtn = qs("#vc-save-btn");
-  // Set via property, not an interpolated HTML attribute — avoids any escaping
-  // edge case. Blank unless the user already typed something this session.
-  nameInput.value = state.voiceName === "My Voice" ? "" : state.voiceName;
-
-  qs("#vc-legal-checkbox").addEventListener("change", (e) => {
-    state.legalConfirmed = e.target.checked;
-    saveBtn.disabled = !state.legalConfirmed;
-  });
-
-  saveBtn.addEventListener("click", () => {
-    state.voiceName = nameInput.value.trim() || "My Voice";
-    runCloning();
-  });
-}
-
-// ---------- Cloning (loading screen between Step 3 and Step 4) ----------
-
-async function runCloning() {
-  // The review-step preview audio has no visible player once we navigate
-  // away — if it's still playing, it'd otherwise keep playing audibly in the
-  // background with no way to stop it.
-  if (activeAudioPreviewStop) {
-    activeAudioPreviewStop();
-    activeAudioPreviewStop = null;
-  }
-  setStepHtml(`
-    <h2 class="vc-title vc-centered">Creating your voice profile...</h2>
-    <div class="vc-indeterminate-track"><div class="vc-indeterminate-bar"></div></div>
-    <p class="vc-loading-text">This usually takes just a few seconds.</p>
-  `);
-
-  try {
-    // Noise gate intentionally NOT applied here: pre-processing the sample
-    // before ElevenLabs sees it was degrading clone quality — ElevenLabs does
-    // its own internal processing on raw audio. The checkbox above is cosmetic.
-    const voiceId = await createVoiceProfile(state.audioBlob, state.voiceName.trim() || "My Voice");
-    state.voiceId = voiceId;
-    persistVoiceId(voiceId);
-    onVoiceReadyCallback(voiceId);
-    state.attempt = 0;
-    renderVerifyIntro();
-  } catch (err) {
-    // Friendly message via the same shared mapping generate-errors use; route
-    // back to Step 3 so they can retry without re-recording.
-    state.error = friendlyErrorMessage(err);
-    renderStep3();
-  }
-}
-
-// ---------- Step 4: Verification ----------
-
-function renderVerifyIntro() {
-  state.step = 4;
-  setStepHtml(`
-    <h2 class="vc-title vc-centered">Voice Verification</h2>
-    <p class="vc-subtitle vc-centered">Verified voices may gain access to additional features over time.</p>
-    <div class="vc-footer-row">
-      <button id="vc-skip-btn" class="btn btn-secondary" type="button">Skip</button>
-      <button id="vc-verify-start-btn" class="btn btn-primary" type="button">Start</button>
-    </div>
-  `);
-  qs("#vc-verify-start-btn").addEventListener("click", runVerificationAttempt);
-  qs("#vc-skip-btn").addEventListener("click", finishToStep5);
-}
-
-async function runVerificationAttempt() {
-  state.attempt++;
-  state.currentSentence = pickSentence();
-
-  const proceeded = await runCountdownInto((n) => {
-    setStepHtml(`
-      <div class="vc-sentence-card">${escapeHtml(state.currentSentence)}</div>
-      <p class="vc-countdown-label">Get ready to speak...</p>
-      <p class="vc-countdown-number" id="vc-countdown-number">${n}</p>
-    `);
-  });
-  if (!proceeded) return;
-
-  setStepHtml(`
-    <div class="vc-sentence-card">${escapeHtml(state.currentSentence)}</div>
-    <canvas id="vc-bars" class="vc-waveform-canvas" width="460" height="90"></canvas>
-    <p class="vc-timer" id="vc-timer">00:00 / ${formatTime(VERIFY_MAX_MS)}</p>
-    <p class="vc-inline-warning" id="vc-warning"></p>
-    <button id="vc-stop-btn" class="vc-stop-btn" type="button" aria-label="Stop recording">&#9632;</button>
-  `);
-  const timerEl = qs("#vc-timer");
-  const warning = createWarningController(qs("#vc-warning"));
-  const stopBtn = qs("#vc-stop-btn");
-
-  let resolveBlob;
-  const blobPromise = new Promise((resolve) => {
-    resolveBlob = resolve;
-  });
-
-  try {
-    await verifyRecorder.start((blob) => resolveBlob(blob));
-  } catch (err) {
-    state.verifyPassed = false;
-    state.failureReason = "voice";
-    state.exhausted = state.attempt >= MAX_VERIFY_ATTEMPTS;
-    renderVerifyResult();
-    return;
-  }
-
-  activeWaveformStop = safeStartWaveform(verifyRecorder.liveStream, qs("#vc-bars"), warning.onLevel);
-  activeIntervalHandle = setInterval(() => {
-    if (!qs("#vc-timer")) return;
-    updateTimerLabel(timerEl, verifyRecorder.elapsedMs, VERIFY_MAX_MS);
-  }, 200);
-
-  const speech = isSpeechRecognitionSupported
-    ? transcribeLive(VERIFY_MAX_MS, state.language)
-    : { promise: Promise.resolve(null), cancel: () => {}, stop: () => {} };
-
-  // Lets closeModal()/skip mid-recording cancel BOTH together — otherwise
-  // SpeechRecognition keeps listening in the background after the UI moves on.
-  activeVerifyCancel = () => {
-    speech.cancel();
-    if (verifyRecorder.isRecording) verifyRecorder.stop().then(resolveBlob);
-  };
-
-  stopBtn.addEventListener("click", async () => {
-    stopBtn.disabled = true;
-    // Without ending speech recognition too, Promise.all below waits for
-    // speech.promise's own internal timer (the full VERIFY_MAX_MS) even though
-    // the recorder already stopped — the screen would sit frozen on the
-    // recording view for up to 15s after a manual stop. stop() (not cancel())
-    // ends it gracefully so the transcript recognized so far still counts.
-    speech.stop();
-    resolveBlob(await verifyRecorder.stop());
-  });
-
-  const [blob, transcript] = await Promise.all([blobPromise, speech.promise]);
-  activeVerifyCancel = null;
-  clearInterval(activeIntervalHandle);
-  activeIntervalHandle = null;
-  if (activeWaveformStop) {
-    activeWaveformStop();
-    activeWaveformStop = null;
-  }
-  if (!state.modalOpen || state.step !== 4) return;
-
-  setStepHtml(`
-    <div class="vc-sentence-card">${escapeHtml(state.currentSentence)}</div>
-    <p class="vc-footnote vc-centered">Recording captured.</p>
-    <div class="vc-footer-row">
-      <button id="vc-skip-btn" class="btn btn-secondary" type="button">Skip</button>
-      <button id="vc-submit-btn" class="btn btn-primary" type="button">Submit recording</button>
-    </div>
-  `);
-  qs("#vc-skip-btn").addEventListener("click", finishToStep5);
-  qs("#vc-submit-btn").addEventListener("click", () => processVerification(blob, transcript));
-}
-
-async function processVerification(blob, transcript) {
-  setStepHtml(`<div class="vc-spinner"></div>`);
-
-  // transcript === null means SpeechRecognition wasn't supported/available —
-  // don't fail the user for a browser limitation; treat text-match as passed.
-  const textOk = transcript == null ? true : wordOverlapRatio(transcript, state.currentSentence) >= TEXT_MATCH_THRESHOLD;
-  const voiceOk = await checkVoiceSimilarity(state.audioUrl, blob);
-
-  // The checks themselves are near-instant; a truly immediate flip would look
-  // skipped/broken rather than like real verification happened.
-  await sleep(1000);
-  if (!state.modalOpen || state.step !== 4) return;
-
-  state.verifyPassed = textOk && voiceOk;
-  state.failureReason = !textOk ? "text" : "voice";
-  state.exhausted = !state.verifyPassed && state.attempt >= MAX_VERIFY_ATTEMPTS;
-  renderVerifyResult();
-}
-
-function renderVerifyResult() {
-  if (state.verifyPassed) {
-    setStepHtml(`
-      <div class="vc-result-icon">
-        <svg viewBox="0 0 52 52" class="vc-check-svg">
-          <circle class="vc-check-circle" cx="26" cy="26" r="23" fill="none"></circle>
-          <path class="vc-check-path" fill="none" d="M15 27 L23 35 L38 18"></path>
-        </svg>
-      </div>
-      <p class="vc-title vc-centered">Voice verified successfully!</p>
-    `);
-    setTimeout(() => {
-      if (state.modalOpen && state.step === 4) finishToStep5();
-    }, 1500);
-    return;
-  }
-
-  const message = FAIL_MESSAGES[state.failureReason];
-
-  if (state.exhausted) {
-    setStepHtml(`
-      <div class="vc-alert vc-alert-slide">${escapeHtml(message)}</div>
-      <p class="hint">Continuing with unverified voice — clone quality may vary.</p>
-      <div class="vc-footer-row"><span></span><button id="vc-continue-anyway-btn" class="btn btn-primary" type="button">Continue</button></div>
-    `);
-    qs("#vc-continue-anyway-btn").addEventListener("click", finishToStep5);
-    return;
-  }
-
-  setStepHtml(`
-    <div class="vc-alert vc-alert-slide">${escapeHtml(message)}</div>
-    <p class="hint">Attempt ${state.attempt} of ${MAX_VERIFY_ATTEMPTS}.</p>
-    <div class="vc-footer-row">
-      <button id="vc-skip-btn" class="btn btn-secondary" type="button">Skip</button>
-      <button id="vc-retry-btn" class="btn btn-primary" type="button">Try again</button>
-    </div>
-  `);
-  qs("#vc-retry-btn").addEventListener("click", runVerificationAttempt);
-  qs("#vc-skip-btn").addEventListener("click", finishToStep5);
-}
-
-// ---------- Step 5: Completion ----------
-
-function finishToStep5() {
-  stopAnyActiveCapture();
-  state.step = 5;
-  setStepHtml(`
-    <h2 class="vc-title vc-centered">Try out your new clone</h2>
-    <p class="vc-subtitle vc-centered">Your voice is now ready to be used throughout the product.</p>
-    <div class="vc-tile-list">
-      <button class="vc-tile" id="vc-tile-generate" type="button">
-        <span class="vc-tile-icon">🎤</span>
-        <span class="vc-tile-text">
-          <span class="vc-tile-title">Generate speech</span>
-          <span class="vc-tile-desc">Take your new voice for a test drive with Text to Speech</span>
-        </span>
-      </button>
-      <button class="vc-tile" id="vc-tile-practice" type="button">
-        <span class="vc-tile-icon">🗣️</span>
-        <span class="vc-tile-text">
-          <span class="vc-tile-title">Practice delivery</span>
-          <span class="vc-tile-desc">Compare your delivery against your cloned voice</span>
-        </span>
-      </button>
-      <button class="vc-tile" id="vc-tile-sample" type="button">
-        <span class="vc-tile-icon">📖</span>
-        <span class="vc-tile-text">
-          <span class="vc-tile-title">Hear a sample</span>
-          <span class="vc-tile-desc">Listen to your voice read a sample paragraph</span>
-        </span>
-      </button>
-    </div>
-    <div id="vc-sample-player" class="vc-sample-player" hidden></div>
-    <div class="vc-footer-row"><span></span><button id="vc-skip-final-btn" class="btn btn-secondary" type="button">Skip</button></div>
-  `);
-
-  qs("#vc-tile-generate").addEventListener("click", () => {
-    closeModal();
-    renderTrigger();
-    const scriptInput = document.getElementById("script-input");
-    if (scriptInput) scriptInput.focus();
-  });
-
-  qs("#vc-tile-practice").addEventListener("click", () => {
-    closeModal();
-    renderTrigger();
-    document.getElementById("comparison-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  });
-
-  qs("#vc-tile-sample").addEventListener("click", playSampleInPlace);
-
-  qs("#vc-skip-final-btn").addEventListener("click", () => {
-    closeModal();
-    renderTrigger();
-  });
-
+  renderCapture();
   renderTrigger();
 }
 
-async function playSampleInPlace() {
-  const player = qs("#vc-sample-player");
-  if (!player) return;
-  player.hidden = false;
-  player.innerHTML = "";
-  const spinner = document.createElement("div");
-  spinner.className = "vc-spinner";
-  player.appendChild(spinner);
-
-  try {
-    const { url } = await synthesizeSpeech(SAMPLE_PARAGRAPH, null, { fallbackVoiceId: state.voiceId });
-    const currentPlayer = qs("#vc-sample-player");
-    if (!currentPlayer) return; // modal moved on/closed while generating
-    currentPlayer.innerHTML = "";
-    const audioEl = document.createElement("audio");
-    audioEl.controls = true;
-    audioEl.autoplay = true;
-    audioEl.src = url;
-    currentPlayer.appendChild(audioEl);
-  } catch (err) {
-    const currentPlayer = qs("#vc-sample-player");
-    if (!currentPlayer) return;
-    currentPlayer.innerHTML = `<p class="status">${escapeHtml(friendlyErrorMessage(err))}</p>`;
-  }
-}
-
-// ---------- outer trigger (always visible on the page, outside the modal) ----------
-
-function renderTrigger() {
-  if (state.voiceId) {
-    triggerContainer.innerHTML = `
-      <div class="vc-trigger-ready">
-        <span class="status">&check; Voice ready${state.voiceName ? `: ${escapeHtml(state.voiceName)}` : ""}</span>
-        <button id="vc-change-btn" class="btn btn-secondary" type="button">Change Voice</button>
-      </div>
-    `;
-    triggerContainer.querySelector("#vc-change-btn").addEventListener("click", () => {
-      clearPersistedVoiceId();
-      state.voiceId = null;
-      renderTrigger();
-    });
-    return;
-  }
-
-  triggerContainer.innerHTML = `
-    <button id="vc-open-btn" class="btn btn-primary" type="button">Clone Your Voice</button>
-    <details class="vc-trigger-existing">
-      <summary>Already have an ElevenLabs voice ID?</summary>
-      <div class="field voice-id-field">
-        <input type="text" id="vc-existing-id-input" placeholder="e.g. 42xgKaeATtWRPTmYPyGQ" autocomplete="off" spellcheck="false" />
-      </div>
-    </details>
-  `;
-  triggerContainer.querySelector("#vc-open-btn").addEventListener("click", openModal);
-  triggerContainer.querySelector("#vc-existing-id-input").addEventListener("input", (e) => {
-    const value = e.target.value.trim();
-    if (value) {
-      persistVoiceId(value);
-      state.voiceId = value;
-      onVoiceReadyCallback(value);
-      renderTrigger();
-    }
+function createModal() {
+  if (overlay) return;
+  overlay = document.createElement("div");
+  overlay.className = "vc-overlay";
+  overlay.hidden = true;
+  overlay.innerHTML = '<div class="vc-modal" role="dialog" aria-modal="true" aria-labelledby="vc-heading"><button class="vc-close-btn" type="button" aria-label="Close voice setup">&times;</button><div id="vc-modal-body"></div></div>';
+  document.body.appendChild(overlay);
+  body = overlay.querySelector("#vc-modal-body");
+  overlay.querySelector(".vc-close-btn").addEventListener("click", closeModal);
+  overlay.addEventListener("click", (event) => { if (event.target === overlay) closeModal(); });
+  overlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { event.preventDefault(); closeModal(); }
+    if (event.key !== "Tab") return;
+    const controls = [...overlay.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), audio[controls], summary, [tabindex="0"]')].filter((el) => !el.hidden && el.getClientRects().length);
+    if (!controls.length) return;
+    if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls.at(-1).focus(); }
+    else if (!event.shiftKey && document.activeElement === controls.at(-1)) { event.preventDefault(); controls[0].focus(); }
   });
 }
+function setContent(content) {
+  stopPlayback();
+  const steps = ["Capture", "Review", "Listen"];
+  body.innerHTML = `<div class="vc-progress" aria-hidden="true">${steps.map((_, index) => `<span class="vc-progress-seg ${index + 1 < state.step ? "vc-done" : index + 1 === state.step ? "vc-current" : ""}"></span>`).join("")}</div><p class="vc-progress-label">0${state.step} / 03 &nbsp; ${steps[state.step - 1]}</p><div class="vc-step">${content}</div>`;
+  const heading = qs("#vc-heading");
+  if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+}
+export function openModal() {
+  createModal();
+  if (state.modalOpen) return;
+  document.dispatchEvent(new Event("voice-capture-opening"));
+  ++epoch;
+  state.modalOpen = true;
+  previousFocus = document.activeElement;
+  previousOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+  overlay.hidden = false;
+  document.querySelector('main').inert = true;
+  document.querySelector('header.navbar').inert = true;
+  requestAnimationFrame(() => { if (state.modalOpen) overlay.classList.add("vc-open"); });
+  if (state.busy) renderCreating();
+  else if (state.candidateId) renderAudition();
+  else if (state.sample && state.quality) renderReview();
+  else {
+    discardSample();
+    state.step = 1;
+    renderCapture();
+  }
+}
+function closeModal() {
+  if (!state.modalOpen) return;
+  ++epoch;
+  state.modalOpen = false;
+  cleanupCapture();
+  stopPlayback();
+  document.body.style.overflow = previousOverflow;
+  overlay.classList.remove("vc-open");
+  overlay.hidden = true;
+  document.querySelector('main').inert = false;
+  document.querySelector('header.navbar').inert = false;
+  previousFocus?.focus?.();
+  renderTrigger();
+}
 
-// ---------- public API ----------
+function renderCapture() {
+  state.step = 1;
+  setContent(`
+    <p class="vc-modal-kicker">A voice that feels familiar</p>
+    <h2 class="vc-title" id="vc-heading">Start with your real voice.</h2>
+    <p class="vc-subtitle">A short, exact recording gives the voice model a clearer reference.</p>
+    <div class="vc-tip-cards">
+      <div class="vc-tip-card"><span class="vc-tip-icon">01</span><div><div class="vc-tip-title">Find a quiet space</div><div class="vc-tip-desc">One speaker. No music, echo, or other voices.</div></div></div>
+      <div class="vc-tip-card"><span class="vc-tip-icon">02</span><div><div class="vc-tip-title">Sound like yourself</div><div class="vc-tip-desc">Your usual accent and speaking voice. No performance needed.</div></div></div>
+      <div class="vc-tip-card"><span class="vc-tip-icon">03</span><div><div class="vc-tip-title">Keep your distance steady</div><div class="vc-tip-desc">About a handspan from your microphone. Speak comfortably.</div></div></div>
+    </div>
+    <div class="vc-field"><label for="vc-device-select">Microphone</label><select class="vc-select" id="vc-device-select"><option value="">Default microphone</option></select></div>
+    <div class="vc-capture-actions"><button class="btn btn-primary" id="vc-record-btn" type="button">${ICONS.mic} Record my voice</button><button class="btn btn-secondary" id="vc-upload-btn" type="button">${ICONS.upload} Upload audio</button></div>
+    <div class="vc-dropzone" id="vc-dropzone" tabindex="0" role="button" aria-label="Choose an audio file"><p class="vc-dropzone-text">Or drop an audio file here</p><p class="vc-footnote">7–10 seconds · MP3, WAV, M4A, WebM, Ogg or FLAC · up to 10 MB</p></div>
+    <input type="file" id="vc-file-input" accept="audio/*,.mp3,.wav,.m4a,.mp4,.webm,.ogg,.flac" hidden />
+    <p class="vc-inline-warning" role="status">${html(state.error)}</p>
+    <p class="vc-footnote">We check duration and recording levels here. You will listen to the clone before choosing it.</p>
+  `);
+  const token = epoch;
+  const select = qs("#vc-device-select");
+  navigator.mediaDevices?.enumerateDevices?.().then((devices) => {
+    if (!isCurrent(token) || !select.isConnected) return;
+    for (const [index, device] of devices.filter((item) => item.kind === "audioinput" && item.deviceId && item.deviceId !== "default").entries()) {
+      const option = document.createElement("option");
+      option.value = device.deviceId;
+      option.textContent = device.label || `Microphone ${index + 1}`;
+      select.appendChild(option);
+    }
+  }).catch(() => {});
+  qs("#vc-record-btn").addEventListener("click", () => runRecording(select.value || undefined));
+  const fileInput = qs("#vc-file-input");
+  const dropzone = qs("#vc-dropzone");
+  const choose = () => fileInput.click();
+  qs("#vc-upload-btn").addEventListener("click", choose);
+  dropzone.addEventListener("click", choose);
+  dropzone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); choose(); } });
+  dropzone.addEventListener("dragover", (event) => { event.preventDefault(); dropzone.classList.add("vc-drag-over"); });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("vc-drag-over"));
+  dropzone.addEventListener("drop", (event) => { event.preventDefault(); dropzone.classList.remove("vc-drag-over"); if (event.dataTransfer.files[0]) handleFile(event.dataTransfer.files[0]); });
+  fileInput.addEventListener("change", () => { if (fileInput.files[0]) handleFile(fileInput.files[0]); });
+}
+function handleFile(file) {
+  if (!file.type.startsWith("audio/") && !/\.(mp3|wav|m4a|mp4|webm|ogg|flac)$/i.test(file.name)) {
+    state.error = "Choose a supported audio file, such as MP3, WAV, or M4A.";
+    renderCapture();
+    return;
+  }
+  if (!file.size || file.size > MAX_UPLOAD_BYTES) {
+    state.error = file.size ? "This file is over 10 MB. Choose a smaller audio file." : "This file is empty. Choose another recording.";
+    renderCapture();
+    return;
+  }
+  checkSample(file, file.name, "");
+}
+async function runRecording(deviceId) {
+  const token = ++epoch;
+  state.error = "";
+  setContent('<h2 class="vc-title" id="vc-heading">Connect your microphone.</h2><p class="vc-subtitle">Allow microphone access in your browser to start recording.</p><div class="vc-spinner" role="status" aria-label="Waiting for microphone"></div>');
+  let resolveCapture;
+  const captured = new Promise((resolve) => { resolveCapture = resolve; });
+  finishCapture = resolveCapture;
+  try {
+    const started = await recorder.start(resolveCapture, { deviceId });
+    if (!started || !isCurrent(token)) return;
+  } catch (error) {
+    if (!isCurrent(token)) return;
+    state.error = error.name === "NotAllowedError" ? "Microphone access was denied. Allow it in your browser, or upload a recording." : error.name === "NotFoundError" ? "No microphone was found. Connect one or upload a recording." : "We could not start your microphone. Check that it is connected and not in use, or upload audio.";
+    renderCapture();
+    return;
+  }
+  setContent(`
+    <p class="vc-modal-kicker">Recording your reference</p>
+    <h2 class="vc-title" id="vc-heading">Just speak like you.</h2>
+    <p class="vc-subtitle">Read this sentence exactly as written in your natural voice.</p>
+    <div class="vc-reading-prompt" tabindex="0" aria-label="Optional reading prompt">${READING_PROMPT.map((paragraph) => `<p>${paragraph}</p>`).join("")}</div>
+    <canvas id="vc-bars" class="vc-waveform-canvas vc-waveform-visible" width="460" height="70" aria-hidden="true"></canvas>
+    <div class="vc-recording-progress" role="progressbar" aria-label="Recording duration" aria-valuemin="0" aria-valuemax="10" aria-valuenow="0"><div class="vc-progress-fill" id="vc-capture-fill"></div></div>
+    <p class="vc-timer" id="vc-timer">0:00 / 0:10</p>
+    <p class="vc-inline-warning" id="vc-warning" role="status">Keep speaking naturally. Your recording stays unprocessed.</p>
+    <div class="vc-footer-row"><button id="vc-cancel-recording" class="btn btn-secondary" type="button">Start over</button><button id="vc-stop-btn" class="btn btn-primary" type="button" disabled>Keep going · 7s left</button></div>
+  `);
+  const stopButton = qs("#vc-stop-btn");
+  const timerLabel = qs("#vc-timer");
+  const progress = qs(".vc-recording-progress");
+  const fill = qs("#vc-capture-fill");
+  const warning = qs("#vc-warning");
+  let quietSince = null;
+  try {
+    waveform = startLiveRibbon(recorder.liveStream, qs("#vc-bars"), { color: "#c7f86d", onLevel(level) {
+      if (level < 0.012) {
+        quietSince ??= performance.now();
+        if (performance.now() - quietSince > 3500) warning.textContent = "Very little sound is reaching your microphone. Check mute or move a little closer.";
+      } else {
+        quietSince = null;
+        warning.textContent = "Keep speaking naturally. Your recording stays unprocessed.";
+      }
+    } });
+  } catch { /* The recorder still works without the optional visualizer. */ }
+  timer = setInterval(() => {
+    const seconds = Math.min(MAX_SAMPLE_SECONDS, recorder.elapsedMs / 1000);
+    timerLabel.textContent = `${clock(seconds)} / 0:10`;
+    fill.style.transform = `scaleX(${seconds / MAX_SAMPLE_SECONDS})`;
+    progress.setAttribute("aria-valuenow", String(Math.floor(seconds)));
+    stopButton.disabled = !recorder.canStopNow;
+    stopButton.textContent = recorder.canStopNow ? "Finish recording" : `Keep going · ${Math.ceil(MIN_SAMPLE_SECONDS - seconds)}s left`;
+  }, 200);
+  qs("#vc-cancel-recording").addEventListener("click", resetCapture);
+  stopButton.addEventListener("click", async () => {
+    if (!recorder.canStopNow) return;
+    stopButton.disabled = true;
+    resolveCapture(await recorder.stop());
+  });
+  const blob = await captured;
+  if (!isCurrent(token)) return;
+  clearInterval(timer);
+  timer = null;
+  waveform?.stopImmediately();
+  waveform = null;
+  finishCapture = null;
+  await checkSample(blob, "Your voice recording", READING_PROMPT.join(" "));
+}
 
-/**
- * @param {HTMLElement} containerEl - where the compact trigger renders (the modal
- *   itself is appended to document.body separately, once, on init)
- * @param {(voiceId: string) => void} onVoiceReady - called once a usable
- *   voice_id exists (fresh clone, verification pass/skip, or a pasted ID)
- */
+async function checkSample(blob, name, transcript) {
+  const token = ++epoch;
+  state.step = 2;
+  setContent('<h2 class="vc-title" id="vc-heading">Checking your recording.</h2><p class="vc-subtitle">Reading the actual duration and looking for silence or distortion.</p><div class="vc-spinner" role="status" aria-label="Checking recording"></div>');
+  let context;
+  try {
+    if (!blob?.size) throw new Error("empty");
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    context = new AudioContextClass();
+    const buffer = await context.decodeAudioData(await blob.arrayBuffer());
+    if (!isCurrent(token)) return;
+    const quality = analyzeAudioBuffer(buffer);
+    discardSample();
+    state.sample = blob;
+    state.sampleUrl = URL.createObjectURL(blob);
+    state.sampleName = name;
+    state.transcript = transcript;
+    state.quality = quality;
+    state.peaks = sampleAudioBufferPeaks(buffer, 100);
+    renderReview();
+  } catch {
+    if (!isCurrent(token)) return;
+    state.error = "We could not read this audio. Try an MP3 or WAV file, or record with your microphone.";
+    renderCapture();
+  } finally { context?.close().catch(() => {}); }
+}
+function renderReview() {
+  state.step = 2;
+  const quality = state.quality;
+  const level = quality.rmsDb < -36 ? "Quiet" : "Usable level";
+  const peakLabel = quality.clippingRatio >= 0.001 ? "Check peaks" : "No overload found";
+  setContent(`
+    <p class="vc-modal-kicker">The details make the difference</p>
+    <h2 class="vc-title" id="vc-heading">Give it a quick listen.</h2>
+    <p class="vc-subtitle">You should hear one clear, natural voice throughout. Background music, echo, and other speakers can change the clone.</p>
+    <div class="vc-file-card"><div class="vc-file-info"><div class="vc-file-name">${html(state.sampleName)}</div><canvas id="vc-thumb-waveform" class="vc-thumb-waveform" width="420" height="48" aria-hidden="true"></canvas></div><span class="vc-file-duration">${clock(quality.durationSeconds)}</span></div>
+    <audio class="vc-source-audio" id="vc-source-audio" controls preload="metadata" aria-label="Listen to original recording"></audio>
+    <div class="vc-quality-grid"><div class="vc-quality-stat"><span>Duration</span><strong>${clock(quality.durationSeconds)}</strong></div><div class="vc-quality-stat"><span>Recording level</span><strong>${level}</strong></div><div class="vc-quality-stat"><span>Signal peaks</span><strong>${peakLabel}</strong></div></div>
+    ${quality.issues.length ? `<ul class="vc-quality-list">${quality.issues.map((issue) => `<li data-severity="${issue.severity}">${html(issue.message)}</li>`).join("")}</ul>` : '<p class="vc-footnote">Basic recording checks passed. These checks cannot judge background noise or how closely the clone will sound like you.</p>'}
+    <div class="vc-field"><label for="vc-transcript-input">What you said in this recording</label><textarea class="vc-preview-text" id="vc-transcript-input" rows="5" maxlength="5000" placeholder="Paste the exact words spoken in the recording."></textarea><p class="vc-footnote">Review this carefully. EchoVoice uses it with your original recording to generate the ideal track.</p></div>
+    <div class="vc-field-floating"><input id="vc-name-input" type="text" placeholder=" " maxlength="80" autocomplete="off" /><label for="vc-name-input">Name your voice</label></div>
+    <label class="vc-checkbox-label"><input id="vc-legal-checkbox" type="checkbox" ${state.consent ? "checked" : ""} /><span class="vc-checkbox-box"></span><span>I have permission to clone this voice and consent to sending this recording to the voice services used by EchoVoice. Recordings and generated clips may also be saved for app testing.</span></label>
+    <p class="vc-inline-warning" role="status">${html(state.error)}</p>
+    <div class="vc-footer-row"><button id="vc-redo-btn" class="btn btn-secondary" type="button">Choose another take</button><button id="vc-save-btn" class="btn btn-primary" type="button" ${state.consent && quality.canCreate && state.transcript.trim() ? "" : "disabled"}>Create my voice</button></div>
+  `);
+  qs("#vc-source-audio").src = state.sampleUrl;
+  try { drawRibbon(qs("#vc-thumb-waveform"), state.peaks, { color: "#c7f86d" }); } catch { /* Visual only. */ }
+  const nameInput = qs("#vc-name-input");
+  const transcriptInput = qs("#vc-transcript-input");
+  transcriptInput.value = state.transcript;
+  const updateSaveState = () => { qs("#vc-save-btn").disabled = !state.consent || !quality.canCreate || !state.transcript.trim(); };
+  transcriptInput.addEventListener("input", () => { state.transcript = transcriptInput.value; updateSaveState(); });
+  nameInput.value = state.voiceName;
+  nameInput.addEventListener("input", () => { state.voiceName = nameInput.value.trim() || "My voice"; });
+  qs("#vc-legal-checkbox").addEventListener("change", (event) => {
+    state.consent = event.target.checked;
+    updateSaveState();
+  });
+  qs("#vc-redo-btn").addEventListener("click", resetCapture);
+  qs("#vc-save-btn").addEventListener("click", runCloning);
+}
+function renderCreating() {
+  state.step = 2;
+  setContent('<h2 class="vc-title" id="vc-heading">Finding your familiar sound.</h2><p class="vc-subtitle">Creating your voice from the original recording. You can listen and compare next.</p><div class="vc-indeterminate-track" role="status" aria-label="Creating voice"><div class="vc-indeterminate-bar"></div></div><p class="vc-loading-text">This can take a little while. You can close this window and return.</p>');
+}
+async function runCloning() {
+  if (state.busy || !state.consent || !state.quality?.canCreate || !state.transcript.trim()) return;
+  state.busy = true;
+  state.error = "";
+  renderCreating();
+  renderTrigger();
+  try {
+    logAudio(state.sample, 'recording');
+    state.candidateId = await createVoiceProfile(state.sample, state.voiceName, state.transcript.trim());
+    state.candidateProfileId = getCurrentVoiceProfileId();
+    state.step = 3;
+    if (state.modalOpen) renderAudition();
+  } catch (error) {
+    state.error = friendlyErrorMessage(error);
+    if (state.modalOpen) renderReview();
+  } finally {
+    state.busy = false;
+    renderTrigger();
+  }
+}
+function renderAudition() {
+  state.step = 3;
+  setContent(`
+    <p class="vc-modal-kicker">The most useful check is listening</p>
+    <h2 class="vc-title" id="vc-heading">Does it sound like you?</h2>
+    <p class="vc-subtitle">Compare your recording with a calm preview. Listen for your accent, tone, and the way you shape words.</p>
+    <p class="vc-preview-label">01 &nbsp; Your original recording</p><audio class="vc-source-audio" id="vc-source-audio" controls preload="metadata" aria-label="Original voice recording"></audio>
+    <div class="vc-field"><label for="vc-preview-text">Words to try in your own language</label><textarea class="vc-preview-text" id="vc-preview-text" rows="3" maxlength="500"></textarea><p class="vc-footnote">Use the same language as your recording to judge the accent fairly.</p></div>
+    <p class="vc-preview-label">02 &nbsp; Your cloned voice</p><div id="vc-sample-player" class="vc-sample-player"></div>
+    <button id="vc-preview-btn" type="button" class="btn btn-secondary" ${state.previewBusy ? "disabled" : ""}>${state.previewUrl ? "Generate another preview" : state.previewBusy ? "Creating preview…" : "Hear my cloned voice"}</button>
+    <p class="vc-footnote">Listen for a natural voice and accurate words. You can use this recording or try another take.</p>
+    <p class="vc-inline-warning" id="vc-preview-error" role="status"></p>
+    <div class="vc-footer-row"><button id="vc-retry-capture" class="btn btn-secondary" type="button">Improve my recording</button><button id="vc-use-voice" class="btn btn-primary" type="button">Use this voice</button></div>
+    <p class="vc-footnote">You can try your own words in the studio and replace this voice anytime.</p>
+  `);
+  qs("#vc-source-audio").src = state.sampleUrl;
+  qs("#vc-preview-text").value = state.previewText;
+  qs("#vc-preview-text").addEventListener("input", (event) => { state.previewText = event.target.value; });
+  qs("#vc-source-audio").addEventListener("play", () => qs("#vc-preview-audio")?.pause());
+  showPreviewPlayer();
+  qs("#vc-preview-btn").addEventListener("click", generatePreview);
+  qs("#vc-retry-capture").addEventListener("click", resetCapture);
+  qs("#vc-use-voice").addEventListener("click", () => {
+    if (!state.candidateId) return;
+    state.voiceId = state.candidateId;
+    state.voiceProfileId = state.candidateProfileId;
+    state.candidateId = null;
+    state.candidateProfileId = null;
+    storageSet(STORAGE_KEY, state.voiceId);
+    storageSet(NAME_KEY, state.voiceName);
+    storageSet(PROFILE_KEY, state.voiceProfileId);
+    onVoiceReadyCallback?.(state.voiceId, state.voiceProfileId);
+    closeModal();
+    discardSample();
+    document.getElementById("script-input")?.focus();
+  });
+}
+function showPreviewPlayer() {
+  const player = qs("#vc-sample-player");
+  if (!player || !state.previewUrl) return;
+  const audio = document.createElement("audio");
+  audio.id = "vc-preview-audio";
+  audio.controls = true;
+  audio.src = state.previewUrl;
+  audio.setAttribute("aria-label", "Cloned voice preview");
+  audio.addEventListener("play", () => qs("#vc-source-audio")?.pause());
+  player.replaceChildren(audio);
+}
+async function generatePreview() {
+  if (state.previewBusy || !state.candidateId) return;
+  if (!state.previewText.trim()) {
+    qs("#vc-preview-error").textContent = "Add a short sentence for your voice to say.";
+    return;
+  }
+  const candidateId = state.candidateId;
+  state.previewBusy = true;
+  const button = qs("#vc-preview-btn");
+  button.disabled = true;
+  button.textContent = "Creating preview…";
+  qs("#vc-preview-error").textContent = "";
+  try {
+    const { url } = await previewVoice(state.previewText.trim(), { voiceId: candidateId, voiceProfileId: state.candidateProfileId });
+    if (state.candidateId !== candidateId) { URL.revokeObjectURL(url); return; }
+    if (state.previewUrl) URL.revokeObjectURL(state.previewUrl);
+    state.previewUrl = url;
+    if (state.modalOpen && state.step === 3) showPreviewPlayer();
+  } catch (error) {
+    if (state.candidateId === candidateId && state.modalOpen && state.step === 3) qs("#vc-preview-error").textContent = friendlyErrorMessage(error);
+  } finally {
+    state.previewBusy = false;
+    if (state.modalOpen && state.step === 3) {
+      const currentButton = qs("#vc-preview-btn");
+      if (currentButton) { currentButton.disabled = false; currentButton.textContent = state.previewUrl ? "Generate another preview" : "Hear my cloned voice"; }
+    }
+  }
+}
+
+function renderTrigger() {
+  if (!triggerContainer) return;
+  if (state.busy || state.candidateId) {
+    triggerContainer.innerHTML = `<div class="vc-trigger-ready"><span class="status">${state.busy ? "Creating your voice…" : "Your new voice is ready to audition"}</span><button id="vc-resume-btn" class="btn btn-primary" type="button">${state.busy ? "View progress" : "Listen & choose"}</button></div>`;
+    triggerContainer.querySelector("#vc-resume-btn").addEventListener("click", openModal);
+    return;
+  }
+  if (state.voiceId) {
+    triggerContainer.innerHTML = `<div class="vc-trigger-ready"><div class="vc-trigger-copy"><span class="vc-trigger-title">${html(storageGet(NAME_KEY) || state.voiceName)}</span><span class="vc-trigger-subtitle">Voice selected · ready for the studio</span></div><button id="vc-change-btn" class="btn btn-secondary" type="button">Change voice</button></div>`;
+    triggerContainer.querySelector("#vc-change-btn").addEventListener("click", openModal);
+    return;
+  }
+  triggerContainer.innerHTML = `<button id="vc-open-btn" class="btn btn-primary" type="button">${ICONS.mic} Set up my voice</button><details class="vc-trigger-existing"><summary>Use an existing voice ID</summary><div class="field voice-id-field"><label for="vc-existing-id-input">Your ElevenLabs voice ID</label><input type="text" id="vc-existing-id-input" placeholder="Paste your voice ID" autocomplete="off" spellcheck="false" maxlength="64" /></div><button id="vc-existing-use" class="btn btn-secondary" type="button">Use voice ID</button><p id="vc-existing-error" class="vc-footnote" role="status"></p></details>`;
+  triggerContainer.querySelector("#vc-open-btn").addEventListener("click", openModal);
+  const useExisting = () => {
+    const value = triggerContainer.querySelector("#vc-existing-id-input").value.trim();
+    if (!/^[A-Za-z0-9_-]{10,64}$/.test(value)) {
+      triggerContainer.querySelector("#vc-existing-error").textContent = "Paste a complete voice ID from your ElevenLabs library.";
+      return;
+    }
+    state.voiceId = value;
+    state.voiceProfileId = null;
+    state.voiceName = "My saved voice";
+    storageSet(STORAGE_KEY, value);
+    storageSet(NAME_KEY, state.voiceName);
+    storageSet(PROFILE_KEY, null);
+    onVoiceReadyCallback?.(value, null);
+    renderTrigger();
+  };
+  triggerContainer.querySelector("#vc-existing-use").addEventListener("click", useExisting);
+  triggerContainer.querySelector("#vc-existing-id-input").addEventListener("keydown", (event) => { if (event.key === "Enter") useExisting(); });
+}
 export function init(containerEl, onVoiceReady) {
   triggerContainer = containerEl;
   onVoiceReadyCallback = onVoiceReady;
-  createModalDom();
-
-  const cached = readPersistedVoiceId();
-  if (cached) {
-    state.voiceId = cached;
-    onVoiceReadyCallback(cached);
-  }
+  createModal();
+  state.voiceId = storageGet(STORAGE_KEY);
+  state.voiceProfileId = storageGet(PROFILE_KEY);
+  state.voiceName = storageGet(NAME_KEY) || "My voice";
+  if (state.voiceId) onVoiceReadyCallback?.(state.voiceId, state.voiceProfileId);
   renderTrigger();
 }
-
-/** Clears a stale voice_id (e.g. after a "voice_not_found" error) and resets the trigger. */
 export function invalidateVoice() {
-  clearPersistedVoiceId();
+  storageSet(STORAGE_KEY, null);
+  storageSet(NAME_KEY, null);
+  storageSet(PROFILE_KEY, null);
   state.voiceId = null;
+  state.voiceProfileId = null;
+  onVoiceReadyCallback?.(null, null);
   renderTrigger();
 }
