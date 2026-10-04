@@ -39,9 +39,18 @@ export class VoiceRecorder {
         return false;
       }
       this.stream = stream;
-      const formats = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus"];
+      // Safari's native MediaRecorder output is MP4/AAC. Prefer it when the
+      // browser exposes it, then use Opus containers elsewhere.
+      const formats = ["audio/mp4", "audio/webm;codecs=opus", "audio/ogg;codecs=opus"];
       const mimeType = formats.find((format) => MediaRecorder.isTypeSupported?.(format));
-      const recorder = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), audioBitsPerSecond: 128000 });
+      const baseOptions = mimeType ? { mimeType } : {};
+      let recorder;
+      try {
+        recorder = new MediaRecorder(stream, { ...baseOptions, audioBitsPerSecond: 128000 });
+      } catch (error) {
+        if (!['NotSupportedError', 'TypeError'].includes(error?.name)) throw error;
+        recorder = new MediaRecorder(stream, baseOptions);
+      }
       this.mediaRecorder = recorder;
       const chunks = [];
       let failed = false;
@@ -69,7 +78,9 @@ export class VoiceRecorder {
         else complete();
         if (generation === this._generation) onAutoStop?.(null);
       }, { once: true });
-      recorder.start();
+      // Periodic chunks avoid relying on a single final mobile Safari blob.
+      // One second matches WebKit's documented MediaRecorder pattern.
+      recorder.start(1000);
       this._startedAt = Date.now();
       autoStopTimer = setTimeout(async () => {
         const blob = await this.stop();

@@ -426,6 +426,7 @@ function recordingStopped(blob) {
   release(attemptUrl);
   attemptUrl = URL.createObjectURL(blob);
   attemptPlayback.src = attemptUrl;
+  attemptPlayback.load();
   attemptPlayback.hidden = false;
   status.textContent = 'Take captured. Listen back or compare your pitch.';
   updateAvailability();

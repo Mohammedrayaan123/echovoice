@@ -302,6 +302,7 @@ function renderReview() {
     <div class="vc-footer-row"><button id="vc-redo-btn" class="btn btn-secondary" type="button">Choose another take</button><button id="vc-save-btn" class="btn btn-primary" type="button" ${state.consent && quality.canCreate && state.transcript.trim() ? "" : "disabled"}>Create my voice</button></div>
   `);
   qs("#vc-source-audio").src = state.sampleUrl;
+  qs("#vc-source-audio").load();
   try { drawRibbon(qs("#vc-thumb-waveform"), state.peaks, { color: "#c7f86d" }); } catch { /* Visual only. */ }
   const nameInput = qs("#vc-name-input");
   const transcriptInput = qs("#vc-transcript-input");
@@ -357,6 +358,7 @@ function renderAudition() {
     <p class="vc-footnote">You can try your own words in the studio and replace this voice anytime.</p>
   `);
   qs("#vc-source-audio").src = state.sampleUrl;
+  qs("#vc-source-audio").load();
   qs("#vc-preview-text").value = state.previewText;
   qs("#vc-preview-text").addEventListener("input", (event) => { state.previewText = event.target.value; });
   qs("#vc-source-audio").addEventListener("play", () => qs("#vc-preview-audio")?.pause());
@@ -384,10 +386,12 @@ function showPreviewPlayer() {
   const audio = document.createElement("audio");
   audio.id = "vc-preview-audio";
   audio.controls = true;
+  audio.preload = "metadata";
   audio.src = state.previewUrl;
   audio.setAttribute("aria-label", "Cloned voice preview");
   audio.addEventListener("play", () => qs("#vc-source-audio")?.pause());
   player.replaceChildren(audio);
+  audio.load();
 }
 async function generatePreview() {
   if (state.previewBusy || !state.candidateId) return;

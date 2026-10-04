@@ -4,7 +4,7 @@ import { VoiceRecorder } from '../public/js/recorder.js';
 class FakeRecorder extends EventTarget {
   static isTypeSupported(){return true;}
   constructor(stream,options){super();this.stream=stream;this.mimeType=options.mimeType;this.state='inactive';}
-  start(){this.state='recording';}
+  start(timeslice){this.state='recording';this.timeslice=timeslice;}
   stop(){this.state='inactive';queueMicrotask(()=>{this.dispatchEvent(Object.assign(new Event('dataavailable'),{data:new Blob(['audio'],{type:this.mimeType})}));this.dispatchEvent(new Event('stop'));});}
 }
 function fakeStream(){const track={stopped:0,stop(){this.stopped++;}};return {track,getTracks:()=>[track]};}
@@ -14,7 +14,21 @@ test('raw capture requests no browser processing; repeated stop shares completio
   install(async value=>{constraints=value;return stream;});
   const recorder=new VoiceRecorder();await recorder.start();
   assert.equal(constraints.audio.echoCancellation,false);assert.equal(constraints.audio.noiseSuppression,false);assert.equal(constraints.audio.autoGainControl,false);
+  assert.equal(recorder.mediaRecorder.mimeType,'audio/mp4');assert.equal(recorder.mediaRecorder.timeslice,1000);
   const a=recorder.stop(),b=recorder.stop();assert.equal(a,b);assert.ok((await a).size);assert.equal(stream.track.stopped,1);
+});
+test('mobile recorders can reject the bitrate hint without losing the recording',async()=>{
+  class MobileRecorder extends FakeRecorder {
+    constructor(stream,options){
+      if ('audioBitsPerSecond' in options) { const error=new Error('unsupported option');error.name='NotSupportedError';throw error; }
+      super(stream,options);
+    }
+  }
+  MobileRecorder.isTypeSupported=()=>true;
+  const stream=fakeStream();install(async()=>stream);globalThis.MediaRecorder=MobileRecorder;
+  const recorder=new VoiceRecorder();await recorder.start();
+  assert.equal(recorder.mediaRecorder.mimeType,'audio/mp4');assert.equal(recorder.mediaRecorder.timeslice,1000);
+  assert.ok((await recorder.stop()).size);assert.equal(stream.track.stopped,1);
 });
 test('closing during mic permission stops the late stream without recording it',async()=>{
   let resolve;const stream=fakeStream();install(()=>new Promise(done=>{resolve=done;}));
