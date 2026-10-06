@@ -26,11 +26,11 @@ test('invalid samples and inconsistent channels are rejected; quiet audio gets a
   assert.ok(analyzePcmChannels([tone(8,.018)],rate).issues.some(issue=>issue.code==='quiet'));
 });
 const contour = (hz,start=0,length=2) => Array.from({length:Math.round(length/.01)+1},(_,i)=>({time:start+i*.01,frequency:hz}));
-test('modulation tolerates register and onset differences but rejects too little speech',()=>{
+test('pitch comparison respects the two-semitone boundary and rejects insufficient overlap',()=>{
   assert.equal(computeDivergence(contour(180),contour(180)).score,100);
   assert.equal(computeDivergence(contour(180),contour(180*2**(2/12))).score,100);
-  assert.equal(computeDivergence(contour(180),contour(180*2**(3/12))).score,100);
-  assert.equal(computeDivergence(contour(180),contour(180,3)).score,100);
+  assert.equal(computeDivergence(contour(180),contour(180*2**(3/12))).score,0);
+  assert.equal(computeDivergence(contour(180),contour(180,3)).score,null);
   assert.equal(computeDivergence(contour(180,0,.1),contour(180,0,.1)).score,null);
   assert.equal(computeDivergence([],[]).score,null);
 });

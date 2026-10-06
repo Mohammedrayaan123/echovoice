@@ -49,7 +49,6 @@ const attemptBase = document.createElement("canvas");
 let currentXScale = null; // (seconds) => device px, or null when nothing's drawn
 let scoreCountRaf = null;
 let lastDrawing = null;
-let playbackAlignment = null;
 let comparisonRequest = 0;
 let resizeObserver;
 
@@ -260,10 +259,7 @@ function compositeFrame(time) {
  * Move the sync playhead to a given time (seconds), or hide it when null.
  * Cheap: just re-composites the cached base images, no re-analysis.
  */
-export function setPlayhead(time, source = 'reference') {
-  if (time != null && source === 'attempt' && playbackAlignment) {
-    time = playbackAlignment.idealStart + (time - playbackAlignment.attemptStart) / playbackAlignment.timeScale;
-  }
+export function setPlayhead(time) {
   compositeFrame(time);
 }
 
@@ -415,14 +411,10 @@ export async function compare({ aiUrl, userUrl, scriptText, alignment }) {
 
     const divergence = computeDivergence(idealPoints, attemptPoints);
     if (divergence.score === null) {
-      showMessage(divergence.reason === 'too_long' ? 'Try a passage under three minutes for comparison.' : divergence.reason === 'partial'
-        ? 'This take may be incomplete, very different in pace, or unclear. Read the full passage before comparing. No score has been assigned.'
-        : 'Not enough clear speech for a useful comparison. Record at least a few seconds in a quiet spot.');
+      showMessage('There is too little overlapping speech to give a useful pitch score. Start both takes at a similar pace and record the full script.');
       return null;
     }
-    playbackAlignment = divergence;
-    const asContour = points => points.filter(p => p.pitch != null).map(p => ({ time: p.time, frequency: p.pitch }));
-    lastDrawing = { idealPoints: asContour(divergence.alignedIdeal), attemptPoints: asContour(divergence.alignedAttempt), divergenceMap: divergence.divergenceMap, duration: divergence.duration };
+    lastDrawing = { idealPoints, attemptPoints, divergenceMap: divergence.divergenceMap, duration: divergence.duration };
     drawBase(lastDrawing);
 
     if (resultsEl) resultsEl.hidden = false;
@@ -432,10 +424,7 @@ export async function compare({ aiUrl, userUrl, scriptText, alignment }) {
     if (scriptText) {
       let wordTimings;
       try { wordTimings = alignment ? groupCharactersIntoWords(alignment) : null; } catch { wordTimings = null; }
-      // Without actual word alignment, coloring individual words implies
-      // evidence we do not have. The animated read-along stays available.
-      if (wordTimings) renderScriptHighlight(scriptText, divergence.duration, divergence.divergenceMap, wordTimings);
-      else hideScriptHighlight();
+      renderScriptHighlight(scriptText, divergence.idealDuration, divergence.divergenceMap, wordTimings);
     } else {
       hideScriptHighlight();
     }

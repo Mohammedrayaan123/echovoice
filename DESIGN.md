@@ -20,16 +20,6 @@ Generation shows two explicit stages and elapsed time with the existing breathin
 
 ## Accuracy choices
 
-The rehearsal score is labeled **Modulation match**, with separate pacing and
-speech-overlap feedback. Relative pitch and limited timing alignment accommodate
-natural variation; incomplete or unclear attempts show guidance instead of a
-full score. Reference read-along opens by default, and each recorded take has
-its own interactive words. Buttons seek to a word's known or estimated position.
-Measured pitch moves the active word slightly; reduced motion keeps it still.
-Live practice shows pitch movement and microphone level. An optional guide follows
-estimated reference pace, clearly distinguished from recognizing spoken words.
-No guessed word timings are used to label individual words as performance errors.
-
 The app asks for a clean, single-speaker recording lasting 7–10 seconds with its exact transcript. It requests microphone automatic gain for normal handheld distance, keeps browser noise reduction disabled, and balances quiet captures with a bounded constant gain before playback and cloning. Pitch and timing are preserved; uploaded audio is unchanged. Listeners compare their source with a neutral preview. Omni setup does not create an ElevenLabs clone. The preview generates directly in Omni without a paid planner call, using one attempt and the standard timeout; the ElevenLabs mode retains a Multilingual v2 preview. A user can keep their current profile when trying a replacement. Real likeness still needs listening tests with actual speakers and recordings.
 
 The production generation layer uses an ElevenLabs stock-voice reading only to measure approximate duration and pace. OmniVoice independently generates the final ideal track from the raw sample and its reviewed transcript. The ElevenLabs reading does not transfer exact prosody. The public OmniVoice Space remains a demo-grade dependency, so generation has one hard timeout and an explicit pre-generated backup path.

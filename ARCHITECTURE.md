@@ -12,29 +12,7 @@ Browser modules remain under `public/js/`. `tts.js` talks only to EchoVoice rout
 
 The browser never imports `@gradio/client`, contacts the OmniVoice Space, or receives API keys, provider URLs, queue identifiers, inference controls, or stack traces.
 
-`app.js` keeps one provider-agnostic handoff: the returned audio becomes `referenceUrl`. `comparisonViz.js` receives that URL as `aiUrl`. Provider generation is independent of rehearsal analysis. Pitch extraction and vendored Pitchy remain unchanged.
-
-## Rehearsal analysis
-
-`comparisonMath.js` removes the initial detected-speech offset, normalizes median
-pitch in semitones, adjusts global time by a bounded 0.8–1.25 ratio, then uses a
-monotonic path with at most 240 ms local displacement. Skip penalties limit
-overfitting. Frame credit is `exp(-(abs(semitoneDifference)/3)^2)`; the displayed
-modulation score is its mean percentage over voiced matches. No overall speaking
-score is claimed. Pacing and unwarped speech/silence overlap remain separate.
-At least 50 valid grid points, one second per passage, 65% reference voiced
-overlap, and a duration ratio between 0.7 and 1.45 are required. These gates flag
-potentially partial/unclear takes, not verified transcript completeness. Analysis
-is bounded to three minutes. Thresholds still require human-listening calibration.
-
-Graphs show aligned contours on the reference timeline and median pitch baseline.
-Attempt playback maps its playhead using global onset/scale; local alignment makes
-that playhead approximate. Feedback omits per-word error colors without actual
-reference alignment. `pitchViz.js` provides independent reference/attempt views,
-word seeking, measured pitch movement, and voiced-span-based timing estimates.
-`practiceCoach.js` taps the live microphone without changing capture and displays
-pitch and level; its optional estimated pacing guide starts at first voiced input.
-It does not recognize words or send microphone audio to a transcription service.
+`app.js` keeps one provider-agnostic handoff: the returned audio becomes `referenceUrl`. `comparisonViz.js` receives that URL as `aiUrl`, as it did before this change. `comparisonViz.js`, `pitchUtils.js`, Pitchy, semitone comparison, and transport controls are unchanged.
 
 ## Server modules
 
