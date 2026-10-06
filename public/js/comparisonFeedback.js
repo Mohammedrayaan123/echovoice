@@ -26,10 +26,10 @@ const WORD_MIN_COUNT = 5; // below this, word-level highlighting isn't meaningfu
 
 /** @param {number} score 0-100 */
 export function getScoreTier(score) {
-  if (score <= 40) return { label: "Keep Practicing", colorVar: "--color-error" };
-  if (score <= 70) return { label: "Getting There", colorVar: "--color-warning" };
-  if (score <= 90) return { label: "Strong Delivery", colorVar: "--color-accent" };
-  return { label: "Nailed It", colorVar: "--color-success" };
+  if (score <= 40) return { label: "Different pitch movement", colorVar: "--color-warning" };
+  if (score <= 70) return { label: "Some matching movement", colorVar: "--color-warning" };
+  if (score <= 90) return { label: "Similar pitch movement", colorVar: "--color-accent" };
+  return { label: "Close modulation match", colorVar: "--color-success" };
 }
 
 function regionForTime(time, duration) {
@@ -163,7 +163,17 @@ function computeSectionFeedback(divergenceMap, duration) {
  * @param {{idealDuration: number, attemptDuration: number, alignedIdeal: Array, alignedAttempt: Array, divergenceMap: Array, duration: number}} args
  * @returns {Array<{icon: string, text: string}>}
  */
-export function generateFeedbackCards({ idealDuration, attemptDuration, alignedIdeal, alignedAttempt, divergenceMap, duration }) {
+export function generateFeedbackCards({ idealDuration, attemptDuration, alignedIdeal, alignedAttempt, divergenceMap, duration, coverage, pauseOverlap, flatReference }) {
+  if (Number.isFinite(coverage)) {
+    const ratio = attemptDuration / idealDuration;
+    const pace = Math.round(Math.abs(ratio - 1) * 100);
+    return [
+      { text: `Pacing · Your spoken passage was ${pace < 5 ? 'about the same length' : `${pace}% ${ratio > 1 ? 'longer' : 'shorter'}`} than the reference. Initial silence is excluded.` },
+      { text: `Speech overlap · ${Math.round(coverage * 100)}% of reference voiced moments could be compared before local alignment. This does not verify the words.` },
+      { text: `Pause pattern · ${pauseOverlap >= 0.85 ? 'Similar speech and silence pattern.' : 'Speech and silence occur at different moments. Listen for where you pause.'} Unvoiced consonants can also create gaps.` },
+      { text: flatReference ? 'This reference has little pitch variation. A high match does not necessarily mean expressive delivery.' : 'Modulation compares your relative rise and fall, allowing a different natural pitch and small timing variations.' },
+    ];
+  }
   const guaranteed = [computePaceFeedback(idealDuration, attemptDuration)];
 
   const sections = computeSectionFeedback(divergenceMap, duration);
@@ -197,7 +207,7 @@ function colorVarForSemitones(semitones) {
 // silent (null), search a short distance outward for the nearest real data.
 function nearestSemitones(divergenceMap, time) {
   if (!divergenceMap.length) return null;
-  let idx = Math.round(time / GRID_STEP_SECONDS);
+  let idx = Math.round((time - divergenceMap[0].time) / GRID_STEP_SECONDS);
   idx = Math.max(0, Math.min(divergenceMap.length - 1, idx));
   if (divergenceMap[idx].semitones != null) return divergenceMap[idx].semitones;
 

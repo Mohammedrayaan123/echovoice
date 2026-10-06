@@ -103,7 +103,27 @@ The studio saves script drafts on this device. After generation, **Listen again*
 
 Identical script-and-mode delivery plans reuse successful reference measurements for five minutes (up to 64 entries per server). Concurrent matching planning requests share one ElevenLabs reading and still receive independent, single-use plan IDs. Failed planning is not cached. This saves reference requests on manual retries; Omni generation remains one attempt per explicit generation request.
 
-## Tests
+## Rehearsal feedback and interactive practice
+
+The score is now **Modulation match**: relative pitch movement, with initial
+silence removed, median speaking pitch normalized, global timing adjustment
+limited to 0.8–1.25, and monotonic local alignment limited to 240 ms. Smooth
+Gaussian credit replaces the old all-or-nothing two-semitone score. Pacing and
+speech/silence overlap are reported separately. Very short, poorly overlapping,
+or substantially different-length takes receive no score. These acoustic checks
+cannot verify that every word was read. Thresholds are engineering heuristics;
+human listening calibration is still needed before claiming validated accuracy.
+
+Reference words are visible by default and move with measured pitch. Tap a word
+to replay from its timing. Recorded attempts have their own read-along. Where
+alignment is absent, timings use that recording's voiced span and are explicitly
+labeled estimated; individual words are not marked as errors using guessed timing.
+An optional practice guide follows reference pace after speech starts, alongside
+live pitch and microphone level. It is a timing guide, not speech recognition.
+All of this analysis runs locally; it adds no provider calls. Reduced-motion
+preferences disable moving words. The provider-generation pipeline is unchanged.
+
+### Running tests
 
 ```powershell
 npm test

@@ -146,9 +146,31 @@ h1,h2,h3 {
 }
 
 .pitch-word {
+  display:inline-block;
+  font:inherit;
+  color:inherit;
+  border:0;
+  background:transparent;
+  line-height:2.2;
+  transform:translateY(var(--pitch-lift, 0px));
+  transition:transform 100ms ease, background 120ms ease;
   position:relative;
   border-radius:4px;
   padding:3px
+}
+.pitch-word.spoken { opacity:0.65; }
+button.pitch-word { cursor:pointer; min-height:44px; }
+button.pitch-word:focus-visible { outline:2px solid #e4f222; outline-offset:2px; }
+.guided-practice-option { display:flex; align-items:center; gap:12px; min-height:44px; }
+.guided-practice-option input { accent-color:#e4f222; width:20px; height:20px; }
+.live-coach { padding:16px; border:1px solid #293325; border-radius:14px; margin:16px 0; }
+.live-coach[hidden], #attempt-readalong[hidden] { display:none; }
+.live-coach p, .live-level-label { font-size:12px; color:#aebcc7; }
+#live-pitch { display:block; width:100%; height:84px; }
+.live-level-label { display:flex; align-items:center; gap:12px; }
+#live-level { flex:1; min-width:0; }
+@media (prefers-reduced-motion: reduce) {
+  .pitch-word { transform:none; transition:none; }
 }
 .pitch-word.active {
   color:#e4f222;

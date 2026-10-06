@@ -1,6 +1,7 @@
 // Coordinates the rehearsal session; capture and synthesis own their audio work.
 import { generateIdealSpeech, planIdealDelivery, getLastAlignment } from './tts.js';
-import { init as initPitchViz, render as renderPitchViz, reset as resetPitchViz } from './pitchViz.js';
+import { init as initPitchViz, render as renderPitchViz, reset as resetPitchViz, createReadAlong } from './pitchViz.js';
+import { startPracticeCoach } from './practiceCoach.js';
 import { init as initComparisonViz, compare as compareDeliveries, setPlayhead, reset as resetComparisonViz, redraw as redrawComparison } from './comparisonViz.js';
 import { init as initVoiceCapture, invalidateVoice, openModal } from './voiceCapture.js';
 import { VoiceRecorder } from './recorder.js';
@@ -41,6 +42,16 @@ let transportMode = 'reference';
 let playheadRaf = null;
 let recordingTimer = null;
 let liveRibbon = null;
+let stopPracticeCoach = null;
+const attemptReadAlong = createReadAlong();
+attemptReadAlong.init($('attempt-readalong'));
+let analysedAttempt = null;
+attemptPlayback.addEventListener('loadedmetadata', () => {
+  if (!attemptUrl || analysedAttempt === attemptUrl) return;
+  analysedAttempt = attemptUrl;
+  $('attempt-readalong').hidden = false;
+  attemptReadAlong.render(attemptUrl, null, attemptPlayback, $('comparison-script-text').textContent);
+});
 let playbackPeaks = null;
 let matchingBackup = null;
 let modesReady = false;
@@ -96,6 +107,10 @@ function updateAvailability() {
   }
 }
 function resetAttempt() {
+  stopPracticeCoach?.(); stopPracticeCoach = null;
+  attemptReadAlong.reset(); analysedAttempt = null;
+  $('attempt-readalong').hidden = true;
+  $('live-coach').hidden = true;
   comparisonVersion++;
   comparing = false;
   attemptPlayback.pause();
@@ -299,11 +314,17 @@ function activeAudios() { return transportMode === 'both' ? [resultPlayback, att
 function playing(audio) { return !audio.paused && !audio.ended; }
 function tickPlayhead() {
   const active = [resultPlayback, attemptPlayback].find(playing);
-  setPlayhead(active ? active.currentTime : null);
+  setPlayhead(active ? active.currentTime : null, active === attemptPlayback ? 'attempt' : 'reference');
   iconButton($('play-pause-btn'), active ? 'pause' : 'play', active ? 'Pause playback' : 'Play selected audio');
   if (active) playheadRaf = requestAnimationFrame(tickPlayhead);
 }
 for (const audio of [resultPlayback, attemptPlayback]) for (const event of ['play','pause','ended']) audio.addEventListener(event, () => {
+  if (event === 'play' && (recorder.isRecording || requestingMic)) {
+    audio.pause();
+    showToast({ message: 'Finish your recording before playing a track.', type: 'info' });
+    return;
+  }
+  if (event === 'play' && transportMode !== 'both') (audio === resultPlayback ? attemptPlayback : resultPlayback).pause();
   iconButton($('playback-play-btn'), playing(resultPlayback) ? 'pause' : 'play', playing(resultPlayback) ? 'Pause reference' : 'Play reference');
   cancelAnimationFrame(playheadRaf);
   if (!$('comparison-controls').hidden) tickPlayhead();
@@ -414,6 +435,8 @@ generateBtn.addEventListener('click', () => generateReference());
 $('regenerate-btn').addEventListener('click', () => generateReference(true));
 
 function finishRecordingUI() {
+  stopPracticeCoach?.(); stopPracticeCoach = null;
+  $('guided-practice').disabled = false;
   clearInterval(recordingTimer);
   liveRibbon?.stopImmediately();
   liveRibbon = null;
@@ -447,6 +470,15 @@ recordBtn.addEventListener('click', async () => {
     const updateTimer = () => { status.textContent = `Recording ${clock(recorder.elapsedMs / 1000)} / ${clock(recorder.maxDurationMs / 1000)} · Read at your natural pace`; };
     updateTimer();
     recordingTimer = setInterval(updateTimer, 200);
+    $('guided-practice').disabled = true;
+    $('live-coach').hidden = false;
+    try {
+      stopPracticeCoach = startPracticeCoach(recorder.liveStream, {
+        canvas: $('live-pitch'), label: $('live-pitch-label'), meter: $('live-level'),
+        scriptElement: $('comparison-script-text'), duration: resultPlayback.duration,
+        guided: $('guided-practice').checked,
+      });
+    } catch { text('live-pitch-label', 'Live pitch is unavailable. Your recording will still be saved.'); }
     if ($('attempt-waveform')) {
       try { liveRibbon = startLiveRibbon(recorder.liveStream, $('attempt-waveform'), { color: '#aebcc7' }); } catch { /* Optional visualization. */ }
     }
@@ -466,7 +498,7 @@ compareBtn.addEventListener('click', async () => {
   $('try-again-btn').hidden = false;
   const result = await compareDeliveries({ aiUrl: referenceUrl, userUrl: attemptUrl, scriptText: $('comparison-script-text').textContent, alignment: referenceAlignment });
   if (version !== comparisonVersion) return;
-  status.textContent = result ? `${result.score}% pitch match across the compared audio. This is practice feedback, not a measure of voice likeness.` : 'Listen to both clips, or record another take for clearer feedback.';
+  status.textContent = result ? `${result.score}% modulation match. See pacing and speech overlap separately below.` : 'Listen to both clips, or record another take for clearer feedback.';
   comparing = false;
   updateAvailability();
 });
