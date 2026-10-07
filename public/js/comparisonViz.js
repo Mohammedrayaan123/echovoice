@@ -272,9 +272,10 @@ function easeOutCubic(t) {
 // actually paint first so the browser doesn't coalesce both writes into one
 // frame and skip the transition. Only the number counter is JS-driven.
 function animateScore(score) {
+  if (scoreNumberEl) scoreNumberEl.textContent = '65';
   if (scoreRingEl) {
     scoreRingEl.style.transition = "none";
-    scoreRingEl.style.strokeDashoffset = `${SCORE_RING_CIRCUMFERENCE}`;
+    scoreRingEl.style.strokeDashoffset = `${SCORE_RING_CIRCUMFERENCE * 0.35}`;
     void scoreRingEl.getBoundingClientRect(); // force layout so the reset above actually takes effect
     scoreRingEl.style.transition = "";
     scoreRingEl.style.strokeDashoffset = `${SCORE_RING_CIRCUMFERENCE * (1 - score / 100)}`;
@@ -288,7 +289,7 @@ function animateScore(score) {
   const start = performance.now();
   function tick(now) {
     const t = Math.max(0, Math.min(1, (now - start) / SCORE_ANIMATION_MS));
-    if (scoreNumberEl) scoreNumberEl.textContent = String(Math.round(easeOutCubic(t) * score));
+    if (scoreNumberEl) scoreNumberEl.textContent = String(Math.round(65 + easeOutCubic(t) * (score - 65)));
     if (t < 1) scoreCountRaf = requestAnimationFrame(tick);
   }
   scoreCountRaf = requestAnimationFrame(tick);
@@ -418,8 +419,9 @@ export async function compare({ aiUrl, userUrl, scriptText, alignment }) {
     drawBase(lastDrawing);
 
     if (resultsEl) resultsEl.hidden = false;
-    renderScoreTier(divergence.score);
-    animateScore(divergence.score);
+    const displayedScore = Math.max(65, divergence.score);
+    renderScoreTier(displayedScore);
+    animateScore(displayedScore);
     renderFeedbackCards(generateFeedbackCards(divergence));
     if (scriptText) {
       let wordTimings;
@@ -429,7 +431,7 @@ export async function compare({ aiUrl, userUrl, scriptText, alignment }) {
       hideScriptHighlight();
     }
 
-    return { score: divergence.score };
+    return { score: displayedScore, rawScore: divergence.score };
   } catch {
     if (request !== comparisonRequest) return null;
     showMessage("Couldn't analyze pitch — try recording in a quieter spot.");
